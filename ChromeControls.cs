@@ -18,7 +18,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace Ceprkac
 {
-    // ───────────────────────── tab data model ───────────────────────────────
+    //  tab data model 
     internal sealed class BrowserTab
     {
         public string Title { get; set; } = "New Tab";
@@ -48,7 +48,7 @@ namespace Ceprkac
         public string LastSourceAutoFillUrl { get; set; } = "";
     }
 
-    // ───────────────────────── custom tab strip control ─────────────────────
+    //  custom tab strip control 
     internal sealed class ChromeTabStrip : Control
     {
         public List<BrowserTab> Tabs { get; } = new();
@@ -347,7 +347,7 @@ namespace Ceprkac
         }
     }
 
-    // ───────────────────────── bookmark data model (tree) ──────────────────
+    //  bookmark data model (tree) 
     internal sealed class BookmarkNode
     {
         public string Type { get; set; } = "link"; // "link" or "folder"

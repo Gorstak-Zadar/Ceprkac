@@ -115,7 +115,7 @@ namespace Ceprkac
             };
             downloads.Add(item);
             if (downloads.Count > 40) downloads.RemoveRange(0, downloads.Count - 40);
-            statusLabel.Text = $"Downloading {item.Filename}…";
+            statusLabel.Text = $"Downloading {item.Filename}...";
             RefreshDownloadsButton();
             try
             {
@@ -261,7 +261,7 @@ namespace Ceprkac
             };
             downloads.Add(item);
             if (downloads.Count > 40) downloads.RemoveRange(0, downloads.Count - 40);
-            statusLabel.Text = $"Downloading {item.Filename}…";
+            statusLabel.Text = $"Downloading {item.Filename}...";
             RefreshDownloadsButton();
             op.BytesReceivedChanged += (_, _) => BeginInvoke(() =>
             {
@@ -363,7 +363,7 @@ namespace Ceprkac
         {
             int active = downloads.Count(d => d.Status == "Downloading");
             downloadsBtn.Text = active > 0 ? $"\u2913 {active}" : "\u2913";
-            chromeTip.SetToolTip(downloadsBtn, active > 0 ? $"Downloads — {active} in progress" : "Downloads");
+            chromeTip.SetToolTip(downloadsBtn, active > 0 ? $"Downloads - {active} in progress" : "Downloads");
         }
 
         private void RebuildDownloadsMenu()
@@ -381,7 +381,7 @@ namespace Ceprkac
                     ? $"{dl.Received * 100 / Math.Max(dl.Total, 1)}%"
                     : dl.Status;
                 var itemDl = dl;
-                var mi = new ToolStripMenuItem($"{dl.Filename}  —  {extra}")
+                var mi = new ToolStripMenuItem($"{dl.Filename}  -  {extra}")
                 {
                     ForeColor = Color.White, BackColor = Theme.ActiveTab,
                 };

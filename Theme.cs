@@ -18,7 +18,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace Ceprkac
 {
-    // ───────────────────────── colour palette (Chrome-dark inspired) ─────────
+    //  colour palette (Chrome-dark inspired) 
     internal static class Theme
     {
         public static readonly Color TitleBar      = Color.FromArgb(32, 33, 36);
@@ -78,7 +78,7 @@ namespace Ceprkac
 
     internal enum ChromeIconKind { Back, Forward, Reload, Go, Star, Download, Menu }
 
-    /// <summary>Flat nav button. Icons are drawn as lines — WinForms GDI throws "Parameter is not valid" on several Unicode glyphs (↻ ≡) at 175% DPI.</summary>
+    /// <summary>Flat nav button. Icons are drawn as lines - WinForms GDI throws "Parameter is not valid" on several Unicode glyphs ( ) at 175% DPI.</summary>
     internal sealed class ChromeButton : Button
     {
         public ChromeIconKind Kind { get; }

@@ -21,7 +21,7 @@ namespace Ceprkac
     ///
     /// Keep: this exe dir (bundled names only if unsigned), Edge WebView2,
     /// WebView2 user-data, Windows, .NET, GPU vendors.
-    /// Children use the same identity check — not "Temp only".
+    /// Children use the same identity check - not "Temp only".
     /// Empty paths are skipped so a lookup miss cannot unmap a GPU ICD.
     /// </summary>
     internal sealed class InjectedModuleCleaner
@@ -171,7 +171,7 @@ namespace Ceprkac
             if (string.IsNullOrEmpty(fileName)) return false;
             var n = fileName!.ToLowerInvariant();
             if (n == "ceprkac.exe" || n == "webview2loader.dll") return true;
-            // Microsoft.* / System.* framework modules — any loadable-module extension
+            // Microsoft.* / System.* framework modules - any loadable-module extension
             // (WinUI/WinRT ship Microsoft.*.winmd and System.*.winmd next to the app).
             if ((n.StartsWith("microsoft.", StringComparison.Ordinal) ||
                  n.StartsWith("system.", StringComparison.Ordinal)) &&
@@ -222,7 +222,7 @@ namespace Ceprkac
         }
 
         /// <summary>
-        /// Search-order hijack target base names (dbghelp, version, winmm, …). These are
+        /// Search-order hijack target base names (dbghelp, version, winmm, ...). These are
         /// classic .dll names, but matching is done on the base name + any loadable-module
         /// extension so a plant that maps as a non-.dll module variant is still caught.
         /// </summary>
@@ -508,7 +508,7 @@ namespace Ceprkac
             var free = GetProcAddress(k32, "FreeLibrary");
             if (free == IntPtr.Zero) return;
 
-            // QueueUserAPC(FreeLibrary, thread, hmod) — same primitive Sentinel uses.
+            // QueueUserAPC(FreeLibrary, thread, hmod) - same primitive Sentinel uses.
             // CreateRemoteThread is the inject API we are defending against.
             if (QueueFreeLibraryApc(pid, free, hmod))
                 return;
@@ -713,7 +713,7 @@ namespace Ceprkac
         [DllImport("ntdll.dll")] private static extern uint LdrUnregisterDllNotification(IntPtr cookie);
     }
 
-    /// <summary>Authenticode check — subject-only is not enough (Kiro used that).</summary>
+    /// <summary>Authenticode check - subject-only is not enough (Kiro used that).</summary>
     internal static class WinTrust
     {
         private static readonly Guid GenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");

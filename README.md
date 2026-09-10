@@ -2,19 +2,19 @@
 
 A Chrome-inspired tabbed browser for **Windows x64**, built with C# WinForms and **WebView2**. Same UI and features as [GBrowser](https://github.com/CroatiaSecurity/GBrowser), with Edge codecs so **H.264 / AAC** actually play (Discord embeds, typical HTML5 players).
 
-[![version](https://img.shields.io/badge/version-0.8.7-blue?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.8.8-blue?style=flat-square)](CHANGELOG.md)
 [![.NET](https://img.shields.io/badge/.NET-Framework%204.8-512BD4?style=flat-square)](#requirements)
 [![engine](https://img.shields.io/badge/engine-WebView2%20(Chromium)-orange?style=flat-square)](#requirements)
 
-**Download:** [Ceprkac 0.8.7 Setup](https://github.com/CroatiaSecurity/Ceprkac/releases/latest) · **History:** [CHANGELOG](CHANGELOG.md)
+**Download:** [Ceprkac 0.8.8 Setup](https://github.com/CroatiaSecurity/Ceprkac/releases/latest) - **History:** [CHANGELOG](CHANGELOG.md)
 
 ---
 
 ## Features
 
 - Chrome-like tabs, dark UI, nested bookmarks, history, zoom
-- Omnibox search (Google, Bing, DuckDuckGo, Yahoo, Brave, Startpage) — new tab opens empty and focused, first keystroke kept; live URL while browsing
-- Right-click image → Google Lens / reverse-image search; video/media search; copy/open address
+- Omnibox search (Google, Bing, DuckDuckGo, Yahoo, Brave, Startpage) - new tab opens empty and focused, first keystroke kept; live URL while browsing
+- Right-click image -> Google Lens / reverse-image search; video/media search; copy/open address
 - Downloads via WebView2 native shelf; custom downloads badge + history in toolbar; blob/data URI save-as with cookie forwarding
 - Passwords (DPAPI) with auto-fill, credential picker, save prompt, Manage Passwords; payment methods and addresses (DPAPI) with checkout auto-fill
 - Network + DOM ad blocking (`blocklist.txt`); YouTube embed ads blocked via fetch interceptor in iframes
@@ -44,13 +44,13 @@ dotnet run --project Ceprkac.csproj
 build.bat
 ```
 
-Output: `releases\0.8.7\Ceprkac-0.8.7-Setup.exe`
+Output: `releases\0.8.8\Ceprkac-0.8.8-Setup.exe`
 
 ## Default browser
 
 The installer offers **Set Ceprkac as the default browser**. That registers http, https, and HTML files and opens Windows Settings so you can confirm (Windows 10/11 do not allow a silent switch).
 
-Later: menu → **Set as Default Browser...**, or:
+Later: menu -> **Set as Default Browser...**, or:
 
 ```bat
 Ceprkac.exe --register-browser

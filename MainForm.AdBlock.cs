@@ -229,7 +229,7 @@ namespace Ceprkac
 
         private async Task SetupAdBlocker(CoreWebView2 core)
         {
-            // Register filters for resource types that serve ads — NOT All, which would
+            // Register filters for resource types that serve ads - NOT All, which would
             // intercept upload streams and add IPC overhead on every data chunk
             var adResourceTypes = new[]
             {
@@ -288,8 +288,8 @@ namespace Ceprkac
             // bails immediately on any non-YouTube host and on auth/OAuth pages, so registering
             // it globally never tags Cloudflare forums as a bot. Installing it here (instead of
             // lazily on a cancellable top-level NavigationStarting) means it runs before page
-            // scripts on EVERY document — including SPA soft-navigations (clicking a related
-            // video), back/forward, and renderer recovery — so ad-blocking no longer depends on
+            // scripts on EVERY document - including SPA soft-navigations (clicking a related
+            // video), back/forward, and renderer recovery - so ad-blocking no longer depends on
             // the direction the user arrived at the video from.
             //
             // This is AWAITED (callers await SetupAdBlocker before the tab navigates) so the
@@ -297,16 +297,41 @@ namespace Ceprkac
             // fire-and-forget, which lost a race when a YouTube video was opened directly (e.g.
             // clicked from a search-engine result into a new tab): the first document's
             // ytInitialData/ytInitialPlayerResponse loaded with ads intact because the JSON
-            // stripper had not registered yet — hence "ads until you refresh".
+            // stripper had not registered yet - hence "ads until you refresh".
             await InstallYouTubeMainWorld(core);
+
+            // Suppress Google One Tap / FedCM prompts in the MAIN world. The isolated-world
+            // AddScriptToExecuteOnDocumentCreated registration cannot see the page's real
+            // navigator.credentials, so - like the YouTube stripper - this must go through
+            // Page.addScriptToEvaluateOnNewDocument to actually patch the page context.
+            // This is what stops the address-bar blink storm on pages that show the
+            // "Continue with google.com" prompt (e.g. The Guardian). Passkeys are untouched.
+            await InstallFedCmSuppressor(core);
 
             // Inject fetch/XHR blocker into main world via DevTools Protocol
             core.NavigationCompleted += (_, _) => InjectMainWorldBlocker(core);
         }
 
+        // Install the FedCM / One Tap suppressor into the main world, once per CoreWebView2,
+        // via Page.addScriptToEvaluateOnNewDocument so it runs before page scripts on every
+        // document and in every frame. Only the FedCM ({identity:...}) credential path is
+        // neutralised; passkeys ({publicKey:...}) and classic Credential Management pass
+        // through. Awaited so the patch is in place before the first document loads.
+        private static async Task InstallFedCmSuppressor(CoreWebView2 core)
+        {
+            try
+            {
+                try { await core.CallDevToolsProtocolMethodAsync("Page.enable", "{}"); } catch { }
+                string escapedJs = FedCmSuppressJs.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                string cdpParams = "{\"source\":\"" + escapedJs + "\"}";
+                await core.CallDevToolsProtocolMethodAsync("Page.addScriptToEvaluateOnNewDocument", cdpParams);
+            }
+            catch { }
+        }
+
         // Install the main-world YouTube ad blocker once per CoreWebView2, independent of
         // navigation. Page.addScriptToEvaluateOnNewDocument runs the script in the main world
-        // before any page script on every subsequent document — top-level loads, SPA
+        // before any page script on every subsequent document - top-level loads, SPA
         // soft-navigations, and back/forward alike. The script self-guards on hostname, so it
         // is inert everywhere except YouTube. Falls back to AddScriptToExecuteOnDocumentCreated
         // (isolated-world wrapper) if CDP is unavailable.
@@ -366,7 +391,7 @@ namespace Ceprkac
             // Injected into every youtube*/youtube-nocookie* iframe via a <script> tag
             // (main world). Combines:
             //  1. A fetch interceptor that strips adPlacements from /youtubei/v1/player
-            //     responses BEFORE the embed player JS reads them — stops pre-roll ads
+            //     responses BEFORE the embed player JS reads them - stops pre-roll ads
             //     at the data level rather than skipping them after they start.
             //  2. The DOM scrubber + skip-ad clicker (YouTubeAdBlockerJs) as a fallback
             //     for any ad elements that slip through.
@@ -406,7 +431,7 @@ namespace Ceprkac
                 "(function(){" +
                 "var h=(location.hostname||'').toLowerCase();" +
                 "if(h.indexOf('youtube')===-1)return;" +
-                // Fetch interceptor — installs unconditionally so every frame load gets it.
+                // Fetch interceptor - installs unconditionally so every frame load gets it.
                 fetchInterceptor +
                 // DOM scrubber injected as a <script> tag into the main world.
                 "if(window.__ceprkacYtScrub)return;window.__ceprkacYtScrub=true;" +
@@ -427,7 +452,7 @@ namespace Ceprkac
 
             var host = (location.hostname || '').toLowerCase();
 
-            /* CSS-based hiding — catches ads before JS runs */
+            /* CSS-based hiding - catches ads before JS runs */
             var css = document.createElement('style');
             css.textContent = [
                 'ins.adsbygoogle','[id*=""google_ads""]','[class*=""ad-slot""]','[class*=""advert""]',
@@ -542,7 +567,7 @@ namespace Ceprkac
                         }
                     } catch(e) {}
                 }
-                /* Reddit / Facebook / X / Instagram only — XenForo posts are <article> */
+                /* Reddit / Facebook / X / Instagram only - XenForo posts are <article> */
                 if (/(^|\.)reddit\.com$|(^|\.)redditmedia\.com$/.test(host)) {
                     try {
                         document.querySelectorAll('article, [data-testid=""post-container""], .thing').forEach(function(post) {
@@ -573,7 +598,7 @@ namespace Ceprkac
                     try {
                         document.querySelectorAll('article, [data-testid=""placementTracking""]').forEach(function(el) {
                             var text = (el.textContent || '').toLowerCase();
-                            if (/\bpromoted\b/.test(text) || /\bad\s*·/.test(text) || el.matches('[data-testid=""placementTracking""]')) {
+                            if (/\bpromoted\b/.test(text) || /\bad\s*-/.test(text) || el.matches('[data-testid=""placementTracking""]')) {
                                 el.style.display = 'none';
                             }
                         });
@@ -605,14 +630,14 @@ namespace Ceprkac
             ['ytInitialPlayerResponse','ytInitialData','ytcfg'].forEach(function(p){var v=window[p];try{Object.defineProperty(window,p,{configurable:true,get:function(){return v;},set:function(n){if(n&&typeof n==='object')stripAds(n,0);v=n;}});if(v)window[p]=v;}catch(e){}});
             var adS=['.video-ads','.ytp-ad-module','.ytp-ad-overlay-container','.ytp-ad-player-overlay','.ytp-ad-action-interstitial','.ytp-ad-image-overlay','.ytp-ad-text-overlay','#player-ads','#masthead-ad','ytd-display-ad-renderer','ytd-ad-slot-renderer','ytd-promoted-video-renderer','ytd-promoted-sparkles-web-renderer','ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-mealbar-promo-renderer','ytd-enforcement-message-view-model','ytd-search-pyv-renderer','ytd-movie-offer-module-renderer','ytd-compact-promoted-video-renderer','ytd-action-companion-ad-renderer','ytd-primetime-promo-renderer','ytd-masthead-ad-renderer'];
             var skS=['.ytp-ad-skip-button','.ytp-skip-ad-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button__text','button[class*=""skip""]','.ytp-ad-overlay-close-button','.ytp-ad-skip-button-slot'];
-            /* Localized sponsored/ad badge words — covers major YouTube UI languages */
-            var sponsorWords=['sponsored','sponzorirano','gesponsert','sponsorisé','patrocinado','sponsorizzato','gesponsord','спонсируемая','スポンサー','赞助','광고','reklam','promowane','sponzorované','szponzorált','annonce','reklama','hirdetés','реклама','commandité','gesponsord','publicidad','pubblicità','anúncio','reklame','sponzorováno','sponzorované','sponzorirane','спонзорирано'];
+            /* Localized sponsored/ad badge words - covers major YouTube UI languages */
+            var sponsorWords=['sponsored','sponzorirano','gesponsert','sponsoris','patrocinado','sponsorizzato','gesponsord','','','','','reklam','promowane','sponzorovan','szponzorlt','annonce','reklama','hirdets','','commandit','gesponsord','publicidad','pubblicit','anncio','reklame','sponzorovno','sponzorovan','sponzorirane',''];
             function isSponsoredText(t){t=t.trim().toLowerCase();for(var i=0;i<sponsorWords.length;i++){if(t===sponsorWords[i])return true;}return false;}
             function scrub(){for(var i=0;i<adS.length;i++)document.querySelectorAll(adS[i]).forEach(function(e){var p=e.closest('ytd-rich-item-renderer,ytd-rich-section-renderer,ytd-reel-shelf-renderer');if(p)p.remove();else e.remove();});for(var j=0;j<skS.length;j++)document.querySelectorAll(skS[j]).forEach(function(b){if(b.click)b.click();});/* Walk homepage rich grid items and remove sponsored cards by badge text */try{document.querySelectorAll('ytd-rich-item-renderer,ytd-rich-section-renderer').forEach(function(item){if(item.querySelector('ytd-ad-slot-renderer,ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-promoted-sparkles-web-renderer,ytd-in-feed-ad-layout-renderer')){item.remove();return;}var badges=item.querySelectorAll('span.ytd-badge-supported-renderer,ytd-badge-supported-renderer span,div.ytd-badge-supported-renderer,ytd-badge-supported-renderer,[class*=""badge""],.badge,.badge-style-type-ad,span[aria-label]');for(var k=0;k<badges.length;k++){if(isSponsoredText(badges[k].textContent||'')){item.remove();return;}}/* Check inline-block ad metadata text */var metas=item.querySelectorAll('#metadata-line span,#byline-container span,yt-formatted-string.ytd-channel-name');for(var m=0;m<metas.length;m++){if(isSponsoredText(metas[m].textContent||'')){item.remove();return;}}});}catch(e){}/* Walk search results for promoted items */try{document.querySelectorAll('ytd-video-renderer,ytd-compact-video-renderer').forEach(function(item){var badges=item.querySelectorAll('span.ytd-badge-supported-renderer,ytd-badge-supported-renderer span,[class*=""badge""]');for(var k=0;k<badges.length;k++){if(isSponsoredText(badges[k].textContent||'')){item.remove();return;}}});}catch(e){}var p=document.querySelector('.html5-video-player'),v=document.querySelector('video');if(p&&v&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting'))){if(Number.isFinite(v.duration)&&v.duration>0){v.currentTime=Math.max(0,v.duration-0.1);}v.muted=true;v.playbackRate=16;try{v.play();}catch(e){}p.classList.remove('ad-showing');p.classList.remove('ad-interrupting');p.classList.remove('ad-created');document.querySelectorAll('.ytp-ad-skip-button,.ytp-skip-ad-button,.ytp-ad-skip-button-modern').forEach(function(b){b.click();});setTimeout(function(){v.muted=false;v.playbackRate=1;},500);}document.querySelectorAll('ytd-rich-item-renderer').forEach(function(el){var hasAd=!!el.querySelector('ytd-ad-slot-renderer,ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-promoted-sparkles-web-renderer');if(hasAd){el.remove();return;}});document.querySelectorAll('tp-yt-paper-dialog').forEach(function(d){var t=(d.textContent||'').toLowerCase();if(t.includes('ad blocker')||t.includes('allow ads')){var b=d.querySelector('#dismiss-button,.dismiss-button,button');if(b&&b.click)b.click();d.remove();}});}
             scrub();setInterval(scrub,200);new MutationObserver(scrub).observe(document.documentElement,{childList:true,subtree:true});
         })()";
 
-        // Main-world YouTube ad blocker — built at runtime to handle nested quotes cleanly
+        // Main-world YouTube ad blocker - built at runtime to handle nested quotes cleanly
         private static readonly string YouTubeMainWorldCode = BuildYouTubeMainWorldCode();
         // Hostname-guarded <script> injector for AddScriptToExecuteOnDocumentCreatedAsync
         private static readonly string YouTubeMainWorldInjectorJs = BuildYouTubeInjector();
@@ -621,9 +646,9 @@ namespace Ceprkac
         {
             return
                 "(function(){" +
-                // Strict YouTube-only guard — never run on auth/OAuth domains
+                // Strict YouTube-only guard - never run on auth/OAuth domains
                 "var h=location.hostname.toLowerCase();" +
-                // Include youtube-nocookie.com — Discord/Twitter/etc. embeds often use it.
+                // Include youtube-nocookie.com - Discord/Twitter/etc. embeds often use it.
                 "if(h!=='youtube.com'&&h!=='www.youtube.com'&&h!=='m.youtube.com'&&h!=='music.youtube.com'" +
                 "&&h!=='youtube-nocookie.com'&&h!=='www.youtube-nocookie.com'" +
                 "&&!h.endsWith('.youtube.com')&&!h.endsWith('.youtube-nocookie.com'))return;" +
@@ -641,7 +666,7 @@ namespace Ceprkac
                 "'compactPromotedVideoRenderer','actionCompanionAdRenderer'," +
                 "'bannerPromoRenderer','statementBannerRenderer','primeTimePromoRenderer'," +
                 "'searchPyvRenderer','movieOfferModuleRenderer','adPlacementRenderer','sparklesAdRenderer'];" +
-                // Recursive strip function — deletes ad keys and splices ad items from arrays
+                // Recursive strip function - deletes ad keys and splices ad items from arrays
                 "function strip(o,d){if(!o||typeof o!=='object'||d>15)return;" +
                 "for(var i=0;i<adKeys.length;i++)if(o.hasOwnProperty(adKeys[i]))delete o[adKeys[i]];" +
                 "var k=Object.keys(o);for(var j=0;j<k.length;j++){" +
@@ -658,16 +683,16 @@ namespace Ceprkac
                 // Check for badge text indicating sponsored content (BADGE_STYLE_TYPE_AD or localized label)
                 "if(!isAd){try{var js=JSON.stringify(item);" +
                 "if(/\"style\":\"BADGE_STYLE_TYPE_AD\"/.test(js)||" +
-                "/\"label\":\"(?:Sponsored|Sponzorirano|Gesponsert|Sponsorisé|Patrocinado|Sponsorizzato|Gesponsord|Реклама|Рекламa|スポンサー|赞助|광고|Reklam|Promowane|Sponzorované|Szponzorált|Annonce|Reklama|Hirdetés|Commandité|Publicidad|Pubblicità|Anúncio|Reklame|Sponzorováno|Sponzorirane|Спонзорирано)\"/.test(js))" +
+                "/\"label\":\"(?:Sponsored|Sponzorirano|Gesponsert|Sponsoris|Patrocinado|Sponsorizzato|Gesponsord||a||||Reklam|Promowane|Sponzorovan|Szponzorlt|Annonce|Reklama|Hirdets|Commandit|Publicidad|Pubblicit|Anncio|Reklame|Sponzorovno|Sponzorirane|)\"/.test(js))" +
                 "{isAd=true;}}catch(e){}}" +
                 "if(isAd){val.splice(m,1);}" +
                 "else{strip(item,d+1);}" +
                 "}}" +
                 "}else if(val&&typeof val==='object')strip(val,d+1);}}" +
-                // Intercept JSON.parse — catches ytInitialData embedded in <script> tags
+                // Intercept JSON.parse - catches ytInitialData embedded in <script> tags
                 "var op=JSON.parse;JSON.parse=function(){var r=op.apply(this,arguments);" +
                 "try{if(r&&typeof r==='object')strip(r,0);}catch(e){}return r;};" +
-                // Intercept ytInitialPlayerResponse, ytInitialData — catches direct assignments
+                // Intercept ytInitialPlayerResponse, ytInitialData - catches direct assignments
                 "['ytInitialPlayerResponse','ytInitialData'].forEach(function(p){var v=window[p];" +
                 "try{Object.defineProperty(window,p,{configurable:true," +
                 "get:function(){return v;},set:function(n){if(n&&typeof n==='object')strip(n,0);v=n;}});" +
@@ -685,7 +710,7 @@ namespace Ceprkac
                 "})()";
         }
 
-        // Fallback injector — wraps the main world code in a <script> tag for AddScriptToExecuteOnDocumentCreatedAsync
+        // Fallback injector - wraps the main world code in a <script> tag for AddScriptToExecuteOnDocumentCreatedAsync
         private static string BuildYouTubeInjector()
         {
             string escaped = YouTubeMainWorldCode.Replace("\\", "\\\\").Replace("'", "\\'");
@@ -749,7 +774,7 @@ namespace Ceprkac
         {
             if (BlockedAdDomains.Count == 0) return;
             if (IsChallengePage(core)) return;
-            // Skip YouTube — it gets its own dedicated main-world injection
+            // Skip YouTube - it gets its own dedicated main-world injection
             try
             {
                 var pageHost = new Uri(core.Source ?? "").Host.ToLower();
@@ -803,7 +828,7 @@ namespace Ceprkac
                 sb.Append("var S=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){if(this.__blk)return;return S.apply(this,arguments)};");
                 sb.Append("})()");
 
-                // Use DevTools Protocol to inject into main world — bypasses CSP
+                // Use DevTools Protocol to inject into main world - bypasses CSP
                 string escapedJs = sb.ToString().Replace("\\", "\\\\").Replace("\"", "\\\"");
                 string cdpParams = "{\"expression\":\"" + escapedJs + "\",\"allowUnsafeEvalBlockedByCSP\":true}";
                 await core.CallDevToolsProtocolMethodAsync("Runtime.evaluate", cdpParams);
@@ -822,7 +847,7 @@ namespace Ceprkac
                 string pageHost = "";
                 try { pageHost = new Uri(url).Host.ToLower(); } catch { }
 
-                // YouTube gets its own dedicated ad blocking — DevTools main-world injection
+                // YouTube gets its own dedicated ad blocking - DevTools main-world injection
                 // handles JSON stripping, and YouTubeAdBlockerJs handles DOM scrubbing
                 bool isYouTube = pageHost == "www.youtube.com" || pageHost == "youtube.com" ||
                     pageHost == "m.youtube.com" || pageHost == "music.youtube.com" ||
@@ -842,6 +867,6 @@ namespace Ceprkac
             catch { }
         }
 
-        // ── Password Manager ──
+        //  Password Manager 
     }
 }

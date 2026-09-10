@@ -41,8 +41,8 @@ namespace Ceprkac
         /// <summary>Last 4 digits for display without exposing the full number.</summary>
         public string Last4 => Number.Length >= 4 ? Number.Substring(Number.Length - 4) : Number;
         public string Display => string.IsNullOrWhiteSpace(Label)
-            ? $"•••• {Last4}  ({ExpMonth}/{ExpYear})"
-            : $"{Label} — •••• {Last4}  ({ExpMonth}/{ExpYear})";
+            ? $"---- {Last4}  ({ExpMonth}/{ExpYear})"
+            : $"{Label} - ---- {Last4}  ({ExpMonth}/{ExpYear})";
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ namespace Ceprkac
         public string Country { get; set; } = "";
 
         public string Display => string.IsNullOrWhiteSpace(Label)
-            ? $"{FullName} — {Line1}, {City}"
-            : $"{Label}: {FullName} — {Line1}, {City}";
+            ? $"{FullName} - {Line1}, {City}"
+            : $"{Label}: {FullName} - {Line1}, {City}";
     }
 }

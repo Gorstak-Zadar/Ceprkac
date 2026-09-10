@@ -22,7 +22,7 @@ namespace Ceprkac
     {
         // Captures the real right-click target before WebView2 builds its menu.
         // ContextMenuTarget often reports Kind=Page with empty SourceUri on Discord/CDN
-        // images, CSS backgrounds, and in-page viewers — so without this, Lens never appears.
+        // images, CSS backgrounds, and in-page viewers - so without this, Lens never appears.
         private const string ContextCaptureJs = @"
 (function(){
   if (window.__ceprkacCtxCap) return;
@@ -227,7 +227,7 @@ namespace Ceprkac
             var sel = (selectionText ?? "").Trim();
             if (sel.Length > 0)
             {
-                var shown = sel.Length > 40 ? sel.Substring(0, 40) + "…" : sel;
+                var shown = sel.Length > 40 ? sel.Substring(0, 40) + "..." : sel;
                 AddItem($"Search {engine} for \"{shown}\"", BuildTextSearchUrl(sel));
             }
 
@@ -274,7 +274,7 @@ namespace Ceprkac
             }
             try
             {
-                // Empty string label — null has failed to construct a separator on some runtimes.
+                // Empty string label - null has failed to construct a separator on some runtimes.
                 var sep = sharedEnvironment.CreateContextMenuItem(
                     "", null, CoreWebView2ContextMenuItemKind.Separator);
                 items.Insert(idx, sep);

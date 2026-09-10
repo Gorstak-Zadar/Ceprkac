@@ -84,8 +84,8 @@ namespace Ceprkac
         }
 
 
-        // ── Bookmarks ──
-        // ── Settings ──
+        //  Bookmarks 
+        //  Settings 
         private static readonly (string Name, string Home, string Search)[] SearchEngines = new[]
         {
             ("Google",      "https://www.google.com",       "https://www.google.com/search?q={0}"),
@@ -193,7 +193,7 @@ namespace Ceprkac
                 SaveSettings();
         }
 
-        // ── History ──
+        //  History 
         private void LoadHistory()
         {
             if (!File.Exists(historyFile)) return;
@@ -228,6 +228,6 @@ namespace Ceprkac
             history.Clear(); SaveHistory(); statusLabel.Text = "History cleared.";
         }
 
-        // ── Ad Blocker (powered by GSecurity Ad Shield + EasyList + EasyPrivacy) ──
+        //  Ad Blocker (powered by GSecurity Ad Shield + EasyList + EasyPrivacy) 
     }
 }

@@ -3,7 +3,7 @@
 # warnings on this Windows-only project.
 * text=auto
 
-# Windows-native text formats — always CRLF in the working tree.
+# Windows-native text formats - always CRLF in the working tree.
 *.cs      text eol=crlf
 *.ps1     text eol=crlf
 *.bat     text eol=crlf
@@ -18,7 +18,7 @@
 *.txt     text eol=crlf
 *.html    text eol=crlf
 
-# Binary assets — never touched.
+# Binary assets - never touched.
 *.exe     binary
 *.dll     binary
 *.zip     binary

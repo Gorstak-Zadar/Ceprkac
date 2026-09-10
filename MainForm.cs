@@ -94,7 +94,7 @@ namespace Ceprkac
         private readonly List<DownloadItem> downloads = new();
         private readonly AutoCompleteStringCollection addressSuggest = new();
         // True only while the user is actively editing the omnibox (typed/pasted).
-        // Focus alone must NOT block live URL updates — that left the bar stuck on the
+        // Focus alone must NOT block live URL updates - that left the bar stuck on the
         // previous page when FocusOmnibox raced SourceChanged.
         private bool addressUserEditing;
         private string addressCommittedUrl = "";
@@ -105,15 +105,28 @@ namespace Ceprkac
         private DateTime lastProcessRecover = DateTime.MinValue;
         private readonly List<string> pendingExternalUrls = new();
         private DateTime lastCredentialOfferUi = DateTime.MinValue;
-        // Permanently dismissed — user clicked "Type password manually…"
+        // Permanently dismissed - user clicked "Type password manually..."
         private readonly HashSet<string> dismissedCredentialHosts = new(StringComparer.OrdinalIgnoreCase);
-        // Temporarily suppressed — user closed the picker without picking (maybe by accident).
+        // Temporarily suppressed - user closed the picker without picking (maybe by accident).
         // Re-allows after 20 seconds so it can re-appear on next autofill trigger.
         private readonly Dictionary<string, DateTime> recentlyClosedCredentialHosts = new(StringComparer.OrdinalIgnoreCase);
         private ContextMenuStrip? credentialPickerMenu;
-        // Timestamp of the last new-tab open — LostFocus is suppressed for 800ms
+        // Timestamp of the last new-tab open - LostFocus is suppressed for 800ms
         // to prevent the GotFocus/LostFocus race from killing addressUserEditing.
         private DateTime _newTabOpenedAt = DateTime.MinValue;
+
+        // Focus-loop breaker. Some article pages (e.g. links out of index.hr to The
+        // Guardian etc.) run scripts / iframes that repeatedly reclaim WebView focus.
+        // Clicking the omnibox then triggers a GotFocus/LostFocus storm: the page steals
+        // focus back, LostFocus re-syncs the bar, the bar re-selects, focus bounces again
+        // - the whole window blinks ~100x/sec. We detect rapid LostFocus events and stop
+        // reacting to them, and we suppress URL-driven address-bar writes while the
+        // omnibox has (or just had) focus so the page's continuous route updates can't
+        // repaint the bar underneath the user.
+        private DateTime _lastAddressLostFocus = DateTime.MinValue;
+        private int _addressLostFocusStreak;
+        private bool _addressFocused;
+        private DateTime _lastAddressFocusChange = DateTime.MinValue;
 
         private BrowserTab? ActiveTab => tabStrip.SelectedIndex >= 0 && tabStrip.SelectedIndex < tabStrip.Tabs.Count
             ? tabStrip.Tabs[tabStrip.SelectedIndex] : null;
@@ -160,7 +173,7 @@ namespace Ceprkac
             tabStrip.TabCloseClicked += (_, i) => CloseTab(i);
             tabStrip.NewTabClicked += (_, _) => AddNewTab(homePageUrl);
 
-            // Nav bar — GBrowser-style HBox: buttons keep their size, address stretches.
+            // Nav bar - GBrowser-style HBox: buttons keep their size, address stretches.
             // ToolStrip hosted the omnibox and clipped bookmark/downloads/menu at 4K 175%.
             var darkRenderer = new DarkToolStripRenderer();
             chromeTip = new ToolTip();
@@ -217,7 +230,7 @@ namespace Ceprkac
                 AutoCompleteSource = AutoCompleteSource.CustomSource,
                 AutoCompleteCustomSource = addressSuggest,
             };
-            // Omnibox: never flip AutoCompleteMode during KeyPress — that recreates the
+            // Omnibox: never flip AutoCompleteMode during KeyPress - that recreates the
             // EDIT HWND and eats the first character (especially when SelectAll is on and
             // Text.Length is already > 0 from the current URL). Mark editing on input, and
             // enable Suggest only after the character has landed (TextChanged + BeginInvoke).
@@ -248,10 +261,27 @@ namespace Ceprkac
             };
             addressBox.LostFocus += (_, _) =>
             {
+                _addressFocused = false;
+                _lastAddressFocusChange = DateTime.Now;
                 if (ActiveTab?.FocusOmnibox == true) return;
                 // Grace period: suppress for 800ms after a new tab opens so the
                 // GotFocus/LostFocus race can't kill addressUserEditing.
                 if ((DateTime.Now - _newTabOpenedAt).TotalMilliseconds < 800) return;
+
+                // Focus-loop breaker: if LostFocus keeps firing in quick succession the
+                // page is yanking focus back off the omnibox. Re-syncing the bar here just
+                // feeds the loop (rewrite text -> reselect -> focus bounces -> LostFocus).
+                // Count rapid events and, once we cross the threshold, stop reacting so the
+                // blink storm dies out. The streak resets after a quiet gap.
+                var now = DateTime.Now;
+                if ((now - _lastAddressLostFocus).TotalMilliseconds < 250)
+                    _addressLostFocusStreak++;
+                else
+                    _addressLostFocusStreak = 0;
+                _lastAddressLostFocus = now;
+                if (_addressLostFocusStreak >= 3)
+                    return;
+
                 addressUserEditing = false;
                 try
                 {
@@ -259,6 +289,12 @@ namespace Ceprkac
                         SyncAddressBarFromTab(ActiveTab, force: true);
                 }
                 catch { }
+            };
+            addressBox.GotFocus += (_, _) =>
+            {
+                _addressFocused = true;
+                _lastAddressFocusChange = DateTime.Now;
+                _addressLostFocusStreak = 0;
             };
             addressBox.KeyDown += (_, e) =>
             {
@@ -505,7 +541,7 @@ namespace Ceprkac
                 }
                 catch (Exception createEx)
                 {
-                    statusLabel.Text = "WebView2 runtime missing or broken — repairing…";
+                    statusLabel.Text = "WebView2 runtime missing or broken - repairing...";
                     Refresh();
                     if (await InstallWebView2RuntimeAsync() && !AlreadyRestartedForWebView2)
                     {
@@ -522,7 +558,7 @@ namespace Ceprkac
                 }
                 else
                     AddNewTab(homePageUrl);
-                // WebView2 can post a fake 96-DPI message during init — re-assert chrome after the first tab.
+                // WebView2 can post a fake 96-DPI message during init - re-assert chrome after the first tab.
                 BeginInvoke(new Action(ApplyChromeDpi));
             }
             catch (Exception ex)
@@ -601,7 +637,7 @@ namespace Ceprkac
                 return true;
             }
 
-            statusLabel.Text = "WebView2 not found — downloading runtime from Microsoft…";
+            statusLabel.Text = "WebView2 not found - downloading runtime from Microsoft...";
             Refresh();
             if (!await InstallWebView2RuntimeAsync())
             {
@@ -628,7 +664,7 @@ namespace Ceprkac
             var bootstrapperPath = Path.Combine(Path.GetTempPath(), "MicrosoftEdgeWebview2Setup.exe");
             try
             {
-                statusLabel.Text = "Downloading WebView2 runtime…";
+                statusLabel.Text = "Downloading WebView2 runtime...";
                 Refresh();
                 byte[]? bytes = null;
                 try
@@ -649,7 +685,7 @@ namespace Ceprkac
                 if (bytes == null || bytes.Length < 10000) return false;
                 File.WriteAllBytes(bootstrapperPath, bytes);
 
-                statusLabel.Text = "Installing WebView2 runtime…";
+                statusLabel.Text = "Installing WebView2 runtime...";
                 Refresh();
                 await RunWebView2Setup(bootstrapperPath, "/silent /install", false);
                 if (!IsWebView2InRegistry() && !IsWebView2RuntimeInstalled())
@@ -657,7 +693,7 @@ namespace Ceprkac
 
                 for (int i = 0; i < 20 && !IsWebView2InRegistry() && !IsWebView2RuntimeInstalled(); i++)
                 {
-                    statusLabel.Text = "Waiting for WebView2 runtime…";
+                    statusLabel.Text = "Waiting for WebView2 runtime...";
                     await Task.Delay(500);
                 }
                 return IsWebView2InRegistry() || IsWebView2RuntimeInstalled();
@@ -847,14 +883,22 @@ namespace Ceprkac
             addressCommittedUrl = url;
             // Never overwrite text the user is actively editing.
             if (addressUserEditing) return;
+            // Don't let page-driven updates (SourceChanged/HistoryChanged from scripts,
+            // ads, or redirect chains) rewrite the bar while the user has the omnibox
+            // focused or just clicked into it. That rewrite reselects the text and, on
+            // focus-stealing pages, feeds the blink loop. User-initiated navigation
+            // passes force:true and is allowed through.
+            if (!force && (_addressFocused
+                || (DateTime.Now - _lastAddressFocusChange).TotalMilliseconds < 400))
+                return;
             if (addressBox.Text == url) return;
-            // Lightweight persistent log — caller name only, no stack trace.
+            // Lightweight persistent log - caller name only, no stack trace.
             try
             {
                 var caller = new System.Diagnostics.StackFrame(1, false).GetMethod()?.Name ?? "?";
                 File.AppendAllText(
                     Path.Combine(appDataFolder, "addrbar.log"),
-                    $"[{DateTime.Now:HH:mm:ss.fff}] \"{url}\" ← {caller}\n");
+                    $"[{DateTime.Now:HH:mm:ss.fff}] \"{url}\" <- {caller}\n");
             }
             catch { }
             addressBox.AutoCompleteMode = AutoCompleteMode.None;
@@ -868,7 +912,7 @@ namespace Ceprkac
             string url = "";
             try { url = tab.WebView.CoreWebView2?.Source ?? tab.Url ?? ""; }
             catch { url = tab.Url ?? ""; }
-            // Don't show about:blank in the address bar — treat it as empty
+            // Don't show about:blank in the address bar - treat it as empty
             if (url == "about:blank") url = "";
             if (!string.IsNullOrEmpty(url)) tab.Url = url;
             if (ActiveTab != tab) return;
@@ -896,11 +940,11 @@ namespace Ceprkac
 
         // Focus the address bar and select its contents so the first keystroke
         // replaces the pre-filled URL (standard browser omnibox behavior). Typing
-        // is handled natively by the TextBox — no manual character routing.
+        // is handled natively by the TextBox - no manual character routing.
         private void FocusAddressBar(bool selectAll = true)
         {
             if (addressBox.IsDisposed) return;
-            // Do NOT reset addressUserEditing here — callers that want to clear
+            // Do NOT reset addressUserEditing here - callers that want to clear
             // it do so themselves. Resetting it here lets SyncAddressBarFromTab
             // overwrite the box while focus events are still settling.
             addressBox.Focus();
@@ -1001,7 +1045,7 @@ namespace Ceprkac
             };
             webView.MouseDown += (_, _) =>
             {
-                // User explicitly clicked the page on a new empty tab — load home page.
+                // User explicitly clicked the page on a new empty tab - load home page.
                 if (addressBox.Text.Length == 0 && !string.IsNullOrEmpty(homePageUrl)
                     && (tab.WebView.CoreWebView2?.Source ?? "") == "about:blank")
                     NavigateTab(tab, homePageUrl);
@@ -1030,7 +1074,7 @@ namespace Ceprkac
                 if (core != null)
                 {
                     // Use WebView2's native autofill, password save, accelerator keys
-                    // and status bar — explicit so the intent is clear and --disable-sync
+                    // and status bar - explicit so the intent is clear and --disable-sync
                     // removal doesn't silently change behaviour.
                     core.Settings.IsGeneralAutofillEnabled = true;
                     core.Settings.IsPasswordAutosaveEnabled = true;
@@ -1088,7 +1132,7 @@ namespace Ceprkac
                             {
                                 if ((DateTime.UtcNow - lastProcessRecover).TotalSeconds < 3) return;
                                 lastProcessRecover = DateTime.UtcNow;
-                                statusLabel.Text = "Page process recovered — reloading…";
+                                statusLabel.Text = "Page process recovered - reloading...";
                                 try { if (tab.WebView.CoreWebView2 != null) tab.WebView.Reload(); } catch { }
                             }));
                         }
@@ -1096,8 +1140,9 @@ namespace Ceprkac
                     };
                     _ = core.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
                     _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
+                    _ = core.AddScriptToExecuteOnDocumentCreatedAsync(FedCmSuppressJs);
 
-                    // Block navigations to ad domains — cancel and auto-close empty tabs
+                    // Block navigations to ad domains - cancel and auto-close empty tabs
                     core.NavigationStarting += (_, navArgs) =>
                     {
                         var navUri = (navArgs.Uri ?? "").ToLower();
@@ -1118,13 +1163,13 @@ namespace Ceprkac
                             }
                             else
                             {
-                                // Tab has real content — just go back
+                                // Tab has real content - just go back
                                 if (core.CanGoBack) core.GoBack();
                             }
                         }
                     };
 
-                    // Handle window.close() from auth flows — close the tab
+                    // Handle window.close() from auth flows - close the tab
                     core.WindowCloseRequested += (_, _) =>
                     {
                         int tabIdx = tabStrip.Tabs.IndexOf(tab);
@@ -1137,7 +1182,7 @@ namespace Ceprkac
                         var src = core.Source ?? "";
                         if (src.Contains("/callback") && (src.Contains("oauth") || src.Contains("auth")))
                         {
-                            // Auth callback page — auto-close after a short delay
+                            // Auth callback page - auto-close after a short delay
                             _ = Task.Delay(1500).ContinueWith(_ =>
                             {
                                 try { Invoke(() => { int ti = tabStrip.Tabs.IndexOf(tab); if (ti >= 0) CloseTab(ti); }); } catch { }
@@ -1145,7 +1190,7 @@ namespace Ceprkac
                         }
                     };
 
-                    // Ad blocker — network-level request blocking. Awaited so the YouTube
+                    // Ad blocker - network-level request blocking. Awaited so the YouTube
                     // main-world JSON stripper is registered before this tab navigates.
                     await SetupAdBlocker(core);
                 }
@@ -1208,7 +1253,7 @@ namespace Ceprkac
 
             try
             {
-                // Use a separate environment for OAuth popups — no ad blocking scripts
+                // Use a separate environment for OAuth popups - no ad blocking scripts
                 var popupUserData = Path.Combine(appDataFolder, "WebView2OAuthData");
                 Directory.CreateDirectory(popupUserData);
                 var popupEnv = await CoreWebView2Environment.CreateAsync(null, popupUserData);
@@ -1216,7 +1261,7 @@ namespace Ceprkac
                 var popupCore = popupWebView.CoreWebView2;
                 if (popupCore == null) { popup.Dispose(); return; }
 
-                // No ad blocker on OAuth popups — auth providers get blocked otherwise
+                // No ad blocker on OAuth popups - auth providers get blocked otherwise
 
                 // Auto-close when the OAuth flow completes (redirects back to the original site)
                 string? parentDomain = null;
@@ -1324,12 +1369,13 @@ namespace Ceprkac
                 // Awaited so the YouTube main-world JSON stripper is registered BEFORE the
                 // opener starts navigating this new window. When a YouTube video is opened via
                 // window.open / target=_blank (e.g. from a search-engine result), the parent
-                // begins navigation as soon as args.NewWindow is assigned — which is right after
+                // begins navigation as soon as args.NewWindow is assigned - which is right after
                 // this method returns. Registering the CDP script first is what removes the
                 // "ads until refresh" symptom on that path.
                 await SetupAdBlocker(core);
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
+                _ = core.AddScriptToExecuteOnDocumentCreatedAsync(FedCmSuppressJs);
             }
             SwitchToTab(insertIndex);
             return webView;
@@ -1361,15 +1407,15 @@ namespace Ceprkac
             core.SourceChanged += (_, _) =>
             {
                 var src = core.Source ?? "";
-                // Ignore about:blank — it's the transient state of a new tab
+                // Ignore about:blank - it's the transient state of a new tab
                 // before real navigation. Don't update tab.Url or the address bar.
                 if (src == "about:blank") return;
                 tab.Url = src;
-                // Always reflect the page the user is viewing — not the referrer / prior URL.
+                // Always reflect the page the user is viewing - not the referrer / prior URL.
                 // Skip only while the user is mid-edit in the omnibox.
                 SyncAddressBarFromTab(tab);
                 // SPA / client-side route changes (e.g. Google's identifier -> password
-                // step) often do NOT raise NavigationCompleted. Retry autofill here too —
+                // step) often do NOT raise NavigationCompleted. Retry autofill here too -
                 // BUT only once per distinct URL. Autofill dispatches input/change events
                 // when it fills a field; on some SPAs that pushes a new history entry,
                 // which re-raises SourceChanged. Without this guard that formed a
@@ -1422,7 +1468,7 @@ namespace Ceprkac
             if (string.IsNullOrWhiteSpace(url)) return;
             if (url == "about:blank")
             {
-                // Navigate directly — don't treat as search query, don't update address bar.
+                // Navigate directly - don't treat as search query, don't update address bar.
                 tab.Url = "about:blank";
                 addressUserEditing = false;
                 if (tab.WebView.CoreWebView2 != null)
@@ -1443,7 +1489,7 @@ namespace Ceprkac
             addressUserEditing = false;
             if (tab.WebView.CoreWebView2 != null)
                 tab.WebView.CoreWebView2.Navigate(uri.ToString());
-            // Don't write about:blank to the address bar — SyncAddressBarFromTab
+            // Don't write about:blank to the address bar - SyncAddressBarFromTab
             // maps it to "" so the bar stays clean for the user to type into.
             if (ActiveTab == tab && uri.ToString() != "about:blank")
                 SetAddressText(uri.ToString(), force: true);

@@ -33,7 +33,7 @@ namespace Ceprkac
                 foreach (var entry in ParseCredentialJson(json))
                     savedPasswords.Add(entry);
             }
-            catch { /* corrupted or wrong user — ignore */ }
+            catch { /* corrupted or wrong user - ignore */ }
         }
 
         private void SavePasswords()
@@ -55,7 +55,7 @@ namespace Ceprkac
             catch { }
         }
 
-        // ── Payment methods (cards) — DPAPI at rest, same scheme as passwords ──
+        //  Payment methods (cards) - DPAPI at rest, same scheme as passwords 
         private void LoadCards()
         {
             if (!File.Exists(cardsFile)) return;
@@ -66,7 +66,7 @@ namespace Ceprkac
                 savedCards.Clear();
                 foreach (var c in ParseCardJson(json)) savedCards.Add(c);
             }
-            catch { /* corrupted or wrong user — ignore */ }
+            catch { /* corrupted or wrong user - ignore */ }
         }
 
         private void SaveCards()
@@ -94,7 +94,7 @@ namespace Ceprkac
             catch { }
         }
 
-        // ── Addresses / contact profiles — DPAPI at rest ──
+        //  Addresses / contact profiles - DPAPI at rest 
         private void LoadAddresses()
         {
             if (!File.Exists(addressesFile)) return;
@@ -105,7 +105,7 @@ namespace Ceprkac
                 savedAddresses.Clear();
                 foreach (var a in ParseAddressJson(json)) savedAddresses.Add(a);
             }
-            catch { /* corrupted or wrong user — ignore */ }
+            catch { /* corrupted or wrong user - ignore */ }
         }
 
         private void SaveAddresses()
@@ -252,7 +252,7 @@ namespace Ceprkac
                 {
                     string host = c.Url;
                     try { host = new Uri(c.Url).Host; } catch { }
-                    return $"{c.Username}  —  {host}";
+                    return $"{c.Username}  -  {host}";
                 },
                 () => EditCredentialDialog(new SavedCredential()),
                 existing => EditCredentialDialog(CloneCredential(existing)));
@@ -285,9 +285,9 @@ namespace Ceprkac
             return cred;
         }
 
-        // ═══════════════════════════════════════════════════════════════
+        // 
         // Payment / Address managers (list + add/edit/delete dialogs)
-        // ═══════════════════════════════════════════════════════════════
+        // 
 
         private void ManageCards()
         {
@@ -379,9 +379,9 @@ namespace Ceprkac
             return addr;
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // Checkout autofill — card + address
-        // ═══════════════════════════════════════════════════════════════
+        // 
+        // Checkout autofill - card + address
+        // 
 
         private async void TryAutoFillPaymentAndAddress(BrowserTab tab)
         {
@@ -423,7 +423,7 @@ namespace Ceprkac
                 bool hasAddrFields = result.EndsWith("addr");
                 if (!hasCardFields && !hasAddrFields)
                 {
-                    if (!looksLikeCheckout) return; // nothing to fill and not a checkout — stop
+                    if (!looksLikeCheckout) return; // nothing to fill and not a checkout - stop
                     continue;
                 }
 
@@ -507,7 +507,7 @@ namespace Ceprkac
                 {
                     picker.Close();
                     var core = tab.WebView.CoreWebView2;
-                    if (core != null) { await FillCard(core, c); statusLabel.Text = $"Filled card •••• {c.Last4}"; }
+                    if (core != null) { await FillCard(core, c); statusLabel.Text = $"Filled card ---- {c.Last4}"; }
                 };
                 picker.Items.Add(item);
             }
@@ -547,7 +547,7 @@ namespace Ceprkac
 
             // Per-URL de-dupe: if a loop is already running for THIS exact URL, skip.
             // But a genuinely different URL (identifier -> password step) always proceeds
-            // even while an older loop is still retrying — the older loop self-cancels when
+            // even while an older loop is still retrying - the older loop self-cancels when
             // it notices core.Source moved on. This is what removes both the "need to
             // refresh" symptom and the stuck-on-email-page symptom.
             if (tab.AutoFillInProgress
@@ -576,12 +576,12 @@ namespace Ceprkac
             }).ToList();
 
             if (matches.Count == 0) return;
-            // User already chose "type manually" (or closed the menu) for this host — leave them alone.
+            // User already chose "type manually" (or closed the menu) for this host - leave them alone.
             if (IsCredentialOfferDismissed(pageUrl)) return;
 
             // Login-like page heuristic (path keywords). Password fields always count as login
-            // regardless of path. Username-only uses explicit email/username selectors — not a
-            // generic text-box fallback — so we can offer on any site size/layout consistently.
+            // regardless of path. Username-only uses explicit email/username selectors - not a
+            // generic text-box fallback - so we can offer on any site size/layout consistently.
             string pathLower = "";
             try { pathLower = new Uri(pageUrl).PathAndQuery.ToLower(); } catch { }
             bool isLoginPage = pathLower.Contains("login") || pathLower.Contains("signin") || pathLower.Contains("sign-in")
@@ -613,7 +613,7 @@ namespace Ceprkac
                 if (!string.Equals(core.Source ?? "", pageUrl, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                // Strong username selectors only — never treat a random search box as login.
+                // Strong username selectors only - never treat a random search box as login.
                 string checkJs = @"(function() {
                     function visible(el){ return el && el.offsetParent !== null && el.offsetWidth > 0 && el.offsetHeight > 0; }
                     var pws = document.querySelectorAll('input[type=""password""]');
@@ -649,7 +649,7 @@ namespace Ceprkac
                     if (fieldStatus == "none") continue;
 
                     // A password field present means the page is a login step regardless of the
-                    // URL path — this is what makes Google's separate password page work.
+                    // URL path - this is what makes Google's separate password page work.
                     if (fieldStatus == "pwonly")
                     {
                         if (matches.Count == 1)
@@ -802,7 +802,7 @@ namespace Ceprkac
             await core.ExecuteScriptAsync(fillJs);
         }
 
-        // Non-modal menu — never ShowDialog. A modal dialog blocked the page so the user
+        // Non-modal menu - never ShowDialog. A modal dialog blocked the page so the user
         // could not type a password by hand (especially with multiple saved logins).
         private void ShowCredentialPicker(BrowserTab tab, List<SavedCredential> matches, bool passwordOnly = false)
         {
@@ -851,7 +851,7 @@ namespace Ceprkac
                     item.Click += async (_, _) =>
                     {
                         chose = true;
-                        // Capture CoreWebView2 BEFORE closing — picker.Close() fires the
+                        // Capture CoreWebView2 BEFORE closing - picker.Close() fires the
                         // Closed event synchronously which can trigger focus/navigation
                         // events that dispose the CoreWebView2 before we get to use it.
                         var core = tab.WebView?.IsDisposed == false
@@ -859,7 +859,7 @@ namespace Ceprkac
                         picker.Close();
                         if (core == null)
                         {
-                            try { Invoke(() => statusLabel.Text = "Could not fill — page not ready."); } catch { }
+                            try { Invoke(() => statusLabel.Text = "Could not fill - page not ready."); } catch { }
                             return;
                         }
                         try
@@ -884,7 +884,7 @@ namespace Ceprkac
                 }
 
                 picker.Items.Add(new ToolStripSeparator());
-                var dismiss = new ToolStripMenuItem("Type password manually…")
+                var dismiss = new ToolStripMenuItem("Type password manually...")
                 {
                     ForeColor = Color.White,
                     BackColor = Theme.ActiveTab,
@@ -900,12 +900,12 @@ namespace Ceprkac
 
                 picker.Closed += (_, _) =>
                 {
-                    // Closed without picking — temporarily suppress so an accidental
+                    // Closed without picking - temporarily suppress so an accidental
                     // click-away doesn't permanently hide the picker for this session.
                     if (!chose) TemporarilySuppressCredentialOffer(pageUrl);
                     if (ReferenceEquals(credentialPickerMenu, picker))
                         credentialPickerMenu = null;
-                    // Never Dispose() synchronously inside Closed — WinForms'
+                    // Never Dispose() synchronously inside Closed - WinForms'
                     // ModalMenuFilter still holds a reference and will call
                     // set_Visible on the next message pump tick, throwing
                     // ObjectDisposedException. Defer to let WinForms finish first.
@@ -942,10 +942,10 @@ namespace Ceprkac
             try { host = new Uri(pageUrl!).Host.ToLowerInvariant(); }
             catch { host = pageUrl!; }
 
-            // Permanently dismissed — user clicked "Type password manually…"
+            // Permanently dismissed - user clicked "Type password manually..."
             if (dismissedCredentialHosts.Contains(host)) return true;
 
-            // Temporarily suppressed — user closed without picking (maybe by accident)
+            // Temporarily suppressed - user closed without picking (maybe by accident)
             if (recentlyClosedCredentialHosts.TryGetValue(host, out var closedAt))
             {
                 if ((DateTime.Now - closedAt).TotalSeconds < 20)
@@ -955,7 +955,7 @@ namespace Ceprkac
             return false;
         }
 
-        // Permanent dismiss — user explicitly chose "Type password manually…"
+        // Permanent dismiss - user explicitly chose "Type password manually..."
         private void DismissCredentialOffer(string? pageUrl)
         {
             if (string.IsNullOrEmpty(pageUrl)) return;
@@ -965,7 +965,7 @@ namespace Ceprkac
             dismissedCredentialHosts.Add(host);
         }
 
-        // Temporary suppress — user closed without picking (accident or changed mind)
+        // Temporary suppress - user closed without picking (accident or changed mind)
         private void TemporarilySuppressCredentialOffer(string? pageUrl)
         {
             if (string.IsNullOrEmpty(pageUrl)) return;
@@ -975,7 +975,7 @@ namespace Ceprkac
             recentlyClosedCredentialHosts[host] = DateTime.Now;
         }
 
-        // Save-password prompt only — do NOT re-offer on every field focus (that blocked typing).
+        // Save-password prompt only - do NOT re-offer on every field focus (that blocked typing).
         private const string AutofillAssistJs = @"
 (function(){
   if (window.__ceprkacAutofillAssist) return;
@@ -1008,6 +1008,51 @@ namespace Ceprkac
       if (data && data.password) post({type:'password-submit', url: data.url, username: data.username, password: data.password});
     } catch(ex) {}
   }, true);
+})();";
+
+        // Suppress Google One Tap / FedCM prompts. The FedCM credential UI is a
+        // WebView2-managed overlay; when it appears (e.g. The Guardian shows the
+        // ""Continue to theguardian.com with google.com"" prompt) it fights the WinForms
+        // omnibox for OS focus the instant you click the address bar, and the window
+        // blinks ~100x/sec. Ceprkac has its own password manager, so we neutralise the
+        // FedCM path only:
+        //   - navigator.credentials.get({identity:...})  -> the FedCM / One Tap request
+        // Passkeys ({publicKey:...}) and classic Credential Management
+        // ({password:...}/{federated:...}) are passed straight through untouched, so the
+        // 0.8.6 passkey support is preserved.
+        // Runs in the main world before page scripts, in every frame.
+        private const string FedCmSuppressJs = @"
+(function(){
+  if (window.__ceprkacNoFedCm) return;
+  window.__ceprkacNoFedCm = true;
+  try {
+    var creds = navigator.credentials;
+    if (creds && typeof creds.get === 'function') {
+      var origGet = creds.get.bind(creds);
+      creds.get = function(options){
+        try {
+          if (options && options.identity) {
+            // FedCM / Google One Tap request - refuse quietly so no prompt appears.
+            return Promise.reject(new DOMException('FedCM disabled', 'NotAllowedError'));
+          }
+        } catch(e) {}
+        return origGet(options);
+      };
+    }
+  } catch(e) {}
+  // Belt-and-suspenders: neutralise the GSI One Tap client if the page loads it.
+  try {
+    function neuter(){
+      try {
+        if (window.google && google.accounts && google.accounts.id) {
+          google.accounts.id.prompt = function(){};
+          google.accounts.id.renderButton = google.accounts.id.renderButton || function(){};
+        }
+      } catch(e) {}
+    }
+    var n = 0, iv = setInterval(function(){ neuter(); if (++n > 40) clearInterval(iv); }, 250);
+    neuter();
+  } catch(e) {}
 })();";
 
         private void OnWebMessage(BrowserTab tab, CoreWebView2WebMessageReceivedEventArgs args)
@@ -1099,7 +1144,7 @@ namespace Ceprkac
             statusLabel.Text = $"Password saved for {host}";
         }
 
-        // ── CSV/JSON helpers ──
+        //  CSV/JSON helpers 
         private static List<string> ParseCsvLine(string line)
         {
             var fields = new List<string>();

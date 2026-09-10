@@ -26,7 +26,7 @@ namespace Ceprkac
         private static MainForm? mainForm;
         private static Mutex? instanceMutex;
 
-        // ── Per-Monitor V2 DPI awareness (belt-and-suspenders alongside app.manifest) ──
+        //  Per-Monitor V2 DPI awareness (belt-and-suspenders alongside app.manifest) 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
         private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);

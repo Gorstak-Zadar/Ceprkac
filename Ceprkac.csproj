@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.8.7</Version>
+    <Version>0.8.8</Version>
     <AssemblyName>Ceprkac</AssemblyName>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
