@@ -22,7 +22,7 @@ namespace Ceprkac
     {
         private void LoadPasswords()
         {
-            if (!File.Exists(passwordsFile)) return;
+            if (!File.Exists(passwordsFile)) { Logger.Log("PASSWORDS", "No passwords file yet."); return; }
             try
             {
                 var encrypted = File.ReadAllBytes(passwordsFile);
@@ -32,8 +32,9 @@ namespace Ceprkac
                 // Simple JSON array parse: [{"u":"url","n":"username","p":"password"},...]
                 foreach (var entry in ParseCredentialJson(json))
                     savedPasswords.Add(entry);
+                Logger.Log("PASSWORDS", $"Loaded {savedPasswords.Count} saved password(s).");
             }
-            catch { /* corrupted or wrong user - ignore */ }
+            catch (Exception ex) { Logger.Error("PASSWORDS", "LoadPasswords (corrupted or wrong user)", ex); }
         }
 
         private void SavePasswords()
@@ -51,8 +52,9 @@ namespace Ceprkac
                 var bytes = Encoding.UTF8.GetBytes(sb.ToString());
                 var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
                 File.WriteAllBytes(passwordsFile, encrypted);
+                Logger.Log("PASSWORDS", $"Saved {savedPasswords.Count} password(s) to disk.");
             }
-            catch { }
+            catch (Exception ex) { Logger.Error("PASSWORDS", "SavePasswords", ex); }
         }
 
         //  Payment methods (cards) - DPAPI at rest, same scheme as passwords 
@@ -561,7 +563,7 @@ namespace Ceprkac
             string? pageDomain = null;
             try { pageDomain = new Uri(pageUrl).Host.ToLower(); } catch { return; }
 
-            var matches = savedPasswords.Where(p =>
+            var domainMatches = savedPasswords.Where(p =>
             {
                 try
                 {
@@ -575,9 +577,20 @@ namespace Ceprkac
                 catch { return false; }
             }).ToList();
 
+            // When the page domain matches saved logins we can auto-fill silently. When it does
+            // NOT (a Google/OAuth login popup on a site never visited, or a domain that simply
+            // isn't saved yet), we still want to OFFER every saved login through the picker so
+            // the user can pick one - never silently. This is what makes cross-domain login
+            // popups (e.g. a Google sign-in on fmbase.co.uk) fillable.
+            bool hasDomainMatch = domainMatches.Count > 0;
+            var matches = hasDomainMatch ? domainMatches : savedPasswords.ToList();
+
+            Logger.Log("AUTOFILL", $"Credential check for {pageDomain} ({pageUrl}): "
+                + $"domainMatches={domainMatches.Count}, offering={matches.Count}, hasDomainMatch={hasDomainMatch}");
+
             if (matches.Count == 0) return;
             // User already chose "type manually" (or closed the menu) for this host - leave them alone.
-            if (IsCredentialOfferDismissed(pageUrl)) return;
+            if (IsCredentialOfferDismissed(pageUrl)) { Logger.Log("AUTOFILL", $"Offer dismissed/suppressed for {pageDomain}."); return; }
 
             // Login-like page heuristic (path keywords). Password fields always count as login
             // regardless of path. Username-only uses explicit email/username selectors - not a
@@ -647,30 +660,41 @@ namespace Ceprkac
                     var fieldStatus = result.Trim('"');
 
                     if (fieldStatus == "none") continue;
+                    Logger.Log("AUTOFILL", $"Login fields detected ('{fieldStatus}') on {pageDomain}, attempt {attempt + 1}, hasDomainMatch={hasDomainMatch}.");
 
                     // A password field present means the page is a login step regardless of the
                     // URL path - this is what makes Google's separate password page work.
                     if (fieldStatus == "pwonly")
                     {
-                        if (matches.Count == 1)
+                        // Only auto-fill silently for a single credential that actually belongs
+                        // to this domain. Otherwise show the picker so the user chooses.
+                        if (hasDomainMatch && matches.Count == 1)
                         {
                             await FillPasswordOnly(core, matches[0].Password);
+                            Logger.Log("AUTOFILL", $"Auto-filled password for {pageDomain}.");
                             Invoke(() => statusLabel.Text = $"Auto-filled password for {pageDomain}");
                         }
                         else
+                        {
+                            Logger.Log("AUTOFILL", $"Offering password picker for {pageDomain} ({matches.Count} option(s)).");
                             Invoke(() => ShowCredentialPicker(tab, matches, passwordOnly: true));
+                        }
                         return;
                     }
 
                     if (fieldStatus == "both")
                     {
-                        if (matches.Count == 1)
+                        if (hasDomainMatch && matches.Count == 1)
                         {
                             await FillCredentials(core, matches[0].Username, matches[0].Password);
+                            Logger.Log("AUTOFILL", $"Auto-filled credentials for {pageDomain}.");
                             Invoke(() => statusLabel.Text = $"Auto-filled credentials for {pageDomain}");
                         }
                         else
+                        {
+                            Logger.Log("AUTOFILL", $"Offering credential picker for {pageDomain} ({matches.Count} option(s)).");
                             Invoke(() => ShowCredentialPicker(tab, matches));
+                        }
                         return;
                     }
 
@@ -678,19 +702,24 @@ namespace Ceprkac
                     {
                         // Explicit username/email field found. Offer even on non-keyword paths
                         // (some sites use /welcome or /). Auto-fill silently only on login-like paths
-                        // when there is a single match; otherwise always show the picker so small
-                        // windows / odd layouts still get an offer.
-                        if (matches.Count == 1 && isLoginPage)
+                        // when there is a single matching credential for THIS domain; otherwise
+                        // always show the picker so small windows / odd layouts / cross-domain
+                        // popups still get an offer.
+                        if (hasDomainMatch && matches.Count == 1 && isLoginPage)
                         {
                             await FillUsernameOnly(core, matches[0].Username);
+                            Logger.Log("AUTOFILL", $"Filled username for {pageDomain} (continue to password step).");
                             Invoke(() => statusLabel.Text = $"Filled username for {pageDomain} (continue to password step)");
                         }
                         else
+                        {
+                            Logger.Log("AUTOFILL", $"Offering username picker for {pageDomain} ({matches.Count} option(s)).");
                             Invoke(() => ShowCredentialPicker(tab, matches));
+                        }
                         return;
                     }
                 }
-                catch { }
+                catch (Exception ex) { Logger.Error("AUTOFILL", $"field check attempt {attempt + 1} on {pageDomain}", ex); }
             }
             }
             finally
@@ -701,6 +730,125 @@ namespace Ceprkac
                     tab.AutoFillInProgress = false;
             }
         }
+
+        // Fill a chosen credential from the right-click "Fill password" menu. Unlike the
+        // automatic path this makes no assumptions about the domain or page type - the user
+        // explicitly asked for it. It fills whatever login fields it can find, preferring the
+        // form nearest the element that was focused/right-clicked, and it walks same-origin
+        // iframes so OAuth/embedded login boxes are covered. Always logs the outcome.
+        private async Task FillCredentialFromMenu(CoreWebView2? core, SavedCredential cred)
+        {
+            if (core == null)
+            {
+                Logger.Log("AUTOFILL", "FillCredentialFromMenu: core was null.");
+                try { statusLabel.Text = "Could not fill - page not ready."; } catch { }
+                return;
+            }
+
+            string safeUser = JsRaw(cred.Username);
+            string safePwd = JsRaw(cred.Password);
+
+            // Runs in the top document AND every reachable same-origin iframe. Returns a short
+            // status token describing what was filled so we can log/report it.
+            string js = $@"(function() {{
+                var USER = '{safeUser}';
+                var PWD  = '{safePwd}';
+                function setVal(el, val) {{
+                    if (!el) return false;
+                    try {{
+                        var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                        var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        setter.call(el, val);
+                        el.dispatchEvent(new Event('input', {{bubbles:true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles:true}}));
+                        el.dispatchEvent(new Event('blur', {{bubbles:true}}));
+                        return true;
+                    }} catch(e) {{ return false; }}
+                }}
+                function visible(el) {{ return el && el.offsetParent !== null && el.offsetWidth > 0 && el.offsetHeight > 0; }}
+                function isUserField(el) {{
+                    if (!el || el.tagName !== 'INPUT') return false;
+                    var t = (el.type||'').toLowerCase();
+                    if (t === 'password' || t === 'hidden' || t === 'submit' || t === 'button' || t === 'checkbox' || t === 'radio' || t === 'file') return false;
+                    if (t === 'email' || t === 'tel') return true;
+                    var n = ((el.name||'')+' '+(el.id||'')+' '+(el.autocomplete||'')+' '+(el.placeholder||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();
+                    return t === 'text' || t === '' || /user|email|login|identifier|phone|account|name/.test(n);
+                }}
+                function fillDoc(doc) {{
+                    var filledUser = false, filledPw = false;
+                    // Anchor on the focused element if it's a login field, else the first visible password.
+                    var active = doc.activeElement;
+                    var scope = null;
+                    if (active && active.tagName === 'INPUT') scope = active.form || doc;
+                    var pw = null;
+                    var pws = doc.querySelectorAll('input[type=""password""]');
+                    for (var i = 0; i < pws.length; i++) {{ if (visible(pws[i])) {{ pw = pws[i]; break; }} }}
+                    if (!pw && pws.length) pw = pws[0];
+                    var root = (pw && pw.form) ? pw.form : (scope || doc);
+                    // Username
+                    if (USER) {{
+                        var user = null;
+                        if (active && isUserField(active)) user = active;
+                        if (!user) {{
+                            var cands = root.querySelectorAll('input');
+                            for (var j = 0; j < cands.length; j++) {{ if (isUserField(cands[j]) && visible(cands[j])) {{ user = cands[j]; break; }} }}
+                        }}
+                        if (!user && root !== doc) {{
+                            var cands2 = doc.querySelectorAll('input');
+                            for (var k = 0; k < cands2.length; k++) {{ if (isUserField(cands2[k]) && visible(cands2[k])) {{ user = cands2[k]; break; }} }}
+                        }}
+                        if (user) filledUser = setVal(user, USER);
+                    }}
+                    // Password
+                    if (PWD && pw) filledPw = setVal(pw, PWD);
+                    return (filledUser ? 'u' : '') + (filledPw ? 'p' : '');
+                }}
+                var result = fillDoc(document);
+                // Same-origin iframes (embedded login boxes / OAuth frames).
+                if (!result) {{
+                    var frames = document.querySelectorAll('iframe');
+                    for (var f = 0; f < frames.length; f++) {{
+                        try {{
+                            var idoc = frames[f].contentDocument;
+                            if (idoc) {{ var r = fillDoc(idoc); if (r) {{ result = r; break; }} }}
+                        }} catch(e) {{ /* cross-origin - cannot reach */ }}
+                    }}
+                }}
+                return result || 'none';
+            }})()";
+
+            try
+            {
+                var raw = await core.ExecuteScriptAsync(js);
+                string status = (raw ?? "").Trim('"');
+                Logger.Log("AUTOFILL", $"FillCredentialFromMenu result='{status}' for {cred.Username} on {SafeSourceForLog(core)}");
+                try
+                {
+                    statusLabel.Text = status switch
+                    {
+                        "up" => $"Filled username and password for {cred.Username}",
+                        "u" => $"Filled username for {cred.Username}",
+                        "p" => $"Filled password for {cred.Username}",
+                        _ => "No login field found to fill on this page.",
+                    };
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("AUTOFILL", "FillCredentialFromMenu execute", ex);
+                try { statusLabel.Text = $"Autofill error: {ex.Message}"; } catch { }
+            }
+        }
+
+        private static string SafeSourceForLog(CoreWebView2? core)
+        {
+            try { return core?.Source ?? ""; } catch { return ""; }
+        }
+
+        // Escape an arbitrary string for embedding inside a single-quoted JS literal.
+        private static string JsRaw(string s) =>
+            (s ?? "").Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
 
         private async Task FillUsernameOnly(CoreWebView2 core, string username)
         {
@@ -1083,6 +1231,7 @@ namespace Ceprkac
                     string username = root.TryGetProperty("username", out var n) ? (n.GetString() ?? "") : "";
                     string password = root.TryGetProperty("password", out var p) ? (p.GetString() ?? "") : "";
                     if (string.IsNullOrEmpty(password)) return;
+                    Logger.Log("PASSWORDS", $"Password-submit detected for {url} (user={username}).");
                     BeginInvoke(new Action(() => OfferSavePassword(url, username, password)));
                 }
             }
@@ -1141,6 +1290,7 @@ namespace Ceprkac
                 });
             }
             SavePasswords();
+            Logger.Log("PASSWORDS", $"{(existing != null ? "Updated" : "Saved new")} password for {host} (user={username}).");
             statusLabel.Text = $"Password saved for {host}";
         }
 

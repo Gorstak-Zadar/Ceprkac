@@ -82,6 +82,7 @@ namespace Ceprkac
         private readonly string passwordsFile;
         private readonly string cardsFile;
         private readonly string addressesFile;
+        private readonly string walletFile;
         private readonly string settingsFile;
         private readonly string downloadsFile;
         private readonly string configFile;
@@ -90,6 +91,7 @@ namespace Ceprkac
         private readonly List<SavedCredential> savedPasswords = new();
         private readonly List<SavedCard> savedCards = new();
         private readonly List<SavedAddress> savedAddresses = new();
+        private readonly List<WalletProfile> savedProfiles = new();
         private readonly List<string> closedTabs = new();
         private readonly List<DownloadItem> downloads = new();
         private readonly AutoCompleteStringCollection addressSuggest = new();
@@ -158,11 +160,13 @@ namespace Ceprkac
             catch { }
 
             appDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ceprkac");
+            Logger.Init(appDataFolder);
             bookmarksFile = Path.Combine(appDataFolder, "bookmarks.txt");
             historyFile = Path.Combine(appDataFolder, "history.txt");
             passwordsFile = Path.Combine(appDataFolder, "passwords.dat");
             cardsFile = Path.Combine(appDataFolder, "cards.dat");
             addressesFile = Path.Combine(appDataFolder, "addresses.dat");
+            walletFile = Path.Combine(appDataFolder, "wallet.dat");
             settingsFile = Path.Combine(appDataFolder, "settings.txt");
             downloadsFile = Path.Combine(appDataFolder, "downloads.json");
             configFile = Path.Combine(appDataFolder, "config.json");
@@ -362,8 +366,9 @@ namespace Ceprkac
             menuStrip.Items.Add(new ToolStripMenuItem("Import Passwords (CSV)...", null, (_, _) => ImportPasswordsCsv()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
             menuStrip.Items.Add(new ToolStripMenuItem("Clear Saved Passwords", null, (_, _) => ClearPasswords()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
             menuStrip.Items.Add(new ToolStripSeparator());
-            menuStrip.Items.Add(new ToolStripMenuItem("Payment Methods...", null, (_, _) => ManageCards()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
-            menuStrip.Items.Add(new ToolStripMenuItem("Addresses...", null, (_, _) => ManageAddresses()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
+            menuStrip.Items.Add(new ToolStripMenuItem("Wallet (Addresses & Payment)...", null, (_, _) => ManageWallet()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
+            menuStrip.Items.Add(new ToolStripMenuItem("Export Passwords && Wallet...", null, (_, _) => ExportAutofillData()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
+            menuStrip.Items.Add(new ToolStripMenuItem("Import Passwords && Wallet...", null, (_, _) => ImportAutofillData()) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
             menuStrip.Items.Add(new ToolStripSeparator());
             menuStrip.Items.Add(new ToolStripMenuItem("DevTools", null, (_, _) => ActiveTab?.WebView.CoreWebView2?.OpenDevToolsWindow()) { ShortcutKeys = Keys.Control | Keys.I, ForeColor = Color.White, BackColor = Theme.ActiveTab });
             menuStrip.Items.Add(new ToolStripMenuItem("Change Search Engine...", null, (_, _) => { ShowSearchEnginePicker(); }) { ForeColor = Color.White, BackColor = Theme.ActiveTab });
@@ -513,6 +518,7 @@ namespace Ceprkac
                 LoadPasswords();
                 LoadCards();
                 LoadAddresses();
+                LoadWallet();
                 LoadDownloads();
                 LoadWindowState();
                 RefreshBookmarksBar();
@@ -1080,7 +1086,7 @@ namespace Ceprkac
                     core.Settings.IsPasswordAutosaveEnabled = true;
                     core.Settings.AreBrowserAcceleratorKeysEnabled = true;
                     core.Settings.IsStatusBarEnabled = true;
-                    core.NavigationStarting += (_, _) => { tab.IsLoading = true; tab.LoadProgress = 10; if (ActiveTab == tab) statusLabel.Text = "Loading..."; tabStrip.Invalidate(); };
+                    core.NavigationStarting += (_, navA) => { Logger.Log("NAV", $"Navigating: {navA.Uri}"); tab.IsLoading = true; tab.LoadProgress = 10; if (ActiveTab == tab) statusLabel.Text = "Loading..."; tabStrip.Invalidate(); };
                     core.NavigationCompleted += (_, e) =>
                     {
                         tab.IsLoading = false;
@@ -1094,7 +1100,7 @@ namespace Ceprkac
                             return;
                         }
                         TryAutoFillCredentials(tab);
-                        TryAutoFillPaymentAndAddress(tab);
+                        TryAutoFillWallet(tab);
                         InjectAdElementHider(tab);
                     };
                     core.DocumentTitleChanged += (_, _) => { tab.Title = core.DocumentTitle ?? "New Tab"; if (ActiveTab == tab) Text = tab.Title + " - Ceprkac"; tabStrip.Invalidate(); };
@@ -1260,8 +1266,23 @@ namespace Ceprkac
                 await popupWebView.EnsureCoreWebView2Async(popupEnv);
                 var popupCore = popupWebView.CoreWebView2;
                 if (popupCore == null) { popup.Dispose(); return; }
+                Logger.Log("POPUP", $"OAuth/sign-in popup opened for {url} (parent {parentTab.Url}).");
 
                 // No ad blocker on OAuth popups - auth providers get blocked otherwise
+                // But DO enable the password features so a Google/OAuth sign-in popup on a
+                // never-visited site can still offer/fill saved passwords. The context menu
+                // handler lets the user right-click -> Fill password in the popup; the
+                // capture script lets Lens/target detection work there too.
+                try
+                {
+                    popupCore.Settings.IsGeneralAutofillEnabled = true;
+                    popupCore.Settings.IsPasswordAutosaveEnabled = true;
+                    popupCore.ContextMenuRequested += Core_ContextMenuRequested;
+                    _ = popupCore.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
+                    _ = popupCore.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
+                    popupCore.WebMessageReceived += (_, args) => OnWebMessage(parentTab, args);
+                }
+                catch (Exception ex) { Logger.Error("POPUP", "wire password features", ex); }
 
                 // Auto-close when the OAuth flow completes (redirects back to the original site)
                 string? parentDomain = null;
@@ -1359,7 +1380,7 @@ namespace Ceprkac
                     if (e.IsSuccess)
                     {
                         TryAutoFillCredentials(tab);
-                        TryAutoFillPaymentAndAddress(tab);
+                        TryAutoFillWallet(tab);
                     }
                 };
                 core.DocumentTitleChanged += (_, _) => { tab.Title = core.DocumentTitle ?? "New Tab"; if (ActiveTab == tab) Text = tab.Title + " - Ceprkac"; tabStrip.Invalidate(); };
@@ -1427,7 +1448,7 @@ namespace Ceprkac
                 {
                     tab.LastSourceAutoFillUrl = tab.Url;
                     TryAutoFillCredentials(tab);
-                    TryAutoFillPaymentAndAddress(tab);
+                    TryAutoFillWallet(tab);
                 }
             };
             core.HistoryChanged += (_, _) =>

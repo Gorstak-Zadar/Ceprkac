@@ -35,7 +35,7 @@ namespace Ceprkac
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             void add(string? u)
             {
-                if (string.IsNullOrWhiteSpace(u) || !seen.Add(u)) return;
+                if (string.IsNullOrWhiteSpace(u) || !seen.Add(u!)) return;
                 addressSuggest.Add(u);
             }
             foreach (var h in history) add(h);

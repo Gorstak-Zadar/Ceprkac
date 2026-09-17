@@ -92,6 +92,7 @@ namespace Ceprkac
             if (sharedEnvironment == null) return;
             var core = sender as CoreWebView2;
             if (core == null) return;
+            Logger.Log("CTXMENU", $"Context menu requested on {SafeSource(core)}");
 
             // Defer so we can read the JS-captured target (sync ContextMenuTarget is often empty).
             CoreWebView2Deferral? deferral = null;
@@ -120,6 +121,7 @@ namespace Ceprkac
             if (deferral == null)
             {
                 AddSearchMenuItems(menuItems, kind, selectionText, sourceUri, linkUri);
+                AddPasswordMenuItems(menuItems, core);
                 return;
             }
 
@@ -169,6 +171,7 @@ namespace Ceprkac
                 catch { }
 
                 AddSearchMenuItems(items, kind, selectionText, sourceUri, linkUri);
+                AddPasswordMenuItems(items, core);
             }
             finally
             {
@@ -373,6 +376,97 @@ namespace Ceprkac
         {
             try { return new Uri(string.Format(searchUrlTemplate, "x")).Host.ToLowerInvariant(); }
             catch { return ""; }
+        }
+
+        private static string SafeSource(CoreWebView2? core)
+        {
+            try { return core?.Source ?? ""; } catch { return ""; }
+        }
+
+        // Adds a "Fill password" submenu to EVERY context menu so the user can inject a
+        // saved credential no matter where a login form appears - an OAuth/Google popup on
+        // a site never visited before, an iframe login, a modal, or a page whose domain does
+        // not match any saved entry (e.g. fmbase.co.uk offering a Google sign-in). Matching
+        // credentials (by registrable domain) are listed first, then every other saved login,
+        // so anything can be filled on demand. Filling targets the exact frame that was
+        // right-clicked via the provided core.
+        private void AddPasswordMenuItems(IList<CoreWebView2ContextMenuItem> items, CoreWebView2 core)
+        {
+            // Menu items must be created from the SAME environment as the core that raised the
+            // event. OAuth popups run in their own environment, so use core.Environment rather
+            // than sharedEnvironment - otherwise the items silently fail to attach.
+            CoreWebView2Environment? env = null;
+            try { env = core.Environment; } catch { }
+            if (env == null) env = sharedEnvironment;
+            if (env == null) return;
+            if (savedPasswords.Count == 0)
+            {
+                Logger.Log("CTXMENU", "No saved passwords - skipping Fill password menu.");
+                return;
+            }
+
+            string pageUrl = SafeSource(core);
+            string? pageHost = null;
+            try { pageHost = new Uri(pageUrl).Host.ToLowerInvariant(); } catch { }
+
+            // Order: domain matches first, then the rest. De-dupe preserves order.
+            var ordered = new List<SavedCredential>();
+            if (!string.IsNullOrEmpty(pageHost))
+            {
+                foreach (var p in savedPasswords)
+                {
+                    try
+                    {
+                        var savedHost = new Uri(p.Url).Host.ToLowerInvariant();
+                        if (savedHost == pageHost
+                            || pageHost!.EndsWith("." + savedHost, StringComparison.Ordinal)
+                            || savedHost.EndsWith("." + pageHost, StringComparison.Ordinal))
+                            ordered.Add(p);
+                    }
+                    catch { }
+                }
+            }
+            foreach (var p in savedPasswords)
+                if (!ordered.Contains(p)) ordered.Add(p);
+
+            Logger.Log("CTXMENU", $"Building Fill password menu: host={pageHost ?? "?"}, {ordered.Count} credential(s).");
+
+            CoreWebView2ContextMenuItem submenu;
+            try
+            {
+                submenu = env.CreateContextMenuItem(
+                    "Fill password", null, CoreWebView2ContextMenuItemKind.Submenu);
+            }
+            catch (Exception ex) { Logger.Error("CTXMENU", "create submenu", ex); return; }
+
+            int shown = 0;
+            foreach (var cred in ordered)
+            {
+                if (shown >= 50) break; // keep the menu sane
+                var c = cred;
+                string host = c.Url;
+                try { host = new Uri(c.Url).Host; } catch { }
+                string label = string.IsNullOrEmpty(c.Username) ? host : $"{c.Username}  ({host})";
+                try
+                {
+                    var item = env.CreateContextMenuItem(
+                        label, null, CoreWebView2ContextMenuItemKind.Command);
+                    var capturedCore = core;
+                    item.CustomItemSelected += (_, _) =>
+                    {
+                        Logger.Log("CTXMENU", $"Fill password chosen: {c.Username} ({host}) into {SafeSource(capturedCore)}");
+                        try { BeginInvoke(new Action(() => { _ = FillCredentialFromMenu(capturedCore, c); })); }
+                        catch (Exception ex) { Logger.Error("CTXMENU", "invoke fill", ex); }
+                    };
+                    submenu.Children.Add(item);
+                    shown++;
+                }
+                catch (Exception ex) { Logger.Error("CTXMENU", "add credential item", ex); }
+            }
+
+            if (shown == 0) return;
+            try { items.Add(submenu); }
+            catch (Exception ex) { Logger.Error("CTXMENU", "append submenu", ex); }
         }
 
         private void ReplaceNativeSaveAs(IList<CoreWebView2ContextMenuItem> items, string name, CoreWebView2 core, string uri)

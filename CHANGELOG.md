@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.9 - 2026-09-17
+
+Installer: `Ceprkac-0.8.9-Setup.exe`
+
+### Passwords fill anywhere, combined wallet, portable backups, and full logging
+
+- **Fill a saved password in any context via right-click.** Every page (and every OAuth/sign-in popup) now has a **Fill password** submenu in the right-click menu. It lists credentials that match the current site first, then every other saved login, so you can inject a password even when a Google/Microsoft login popup appears on a site you have never visited (e.g. a Google sign-in prompt on `fmbase.co.uk`). Filling targets the exact frame that was right-clicked and walks same-origin iframes.
+- **Automatic offering is no longer limited to matching domains.** When a page shows real login fields but its domain does not match any saved entry, Ceprkac now offers the full list of saved logins through the picker instead of staying silent. Silent single-click auto-fill still only happens for a credential that actually belongs to the current domain.
+- **OAuth / sign-in popups are wired for passwords.** The separate sign-in popup window now enables autofill, the right-click **Fill password** menu, and the save-password prompt, so cross-domain login popups behave like normal tabs.
+- **Payment methods and addresses are now one "Wallet".** A single **Wallet (Addresses & Payment)** manager replaces the separate Payment Methods and Addresses screens - each profile (e.g. "Home") holds an address and, optionally, a card. Existing cards and addresses are migrated automatically on first launch.
+- **Encrypted, portable backups you can move between machines.** New **Export Passwords & Wallet...** / **Import Passwords & Wallet...** write a single `.ceprkac` file encrypted with a passphrase (PBKDF2-SHA256, 200k iterations, AES-256-CBC). Unlike the at-rest DPAPI store (which is bound to one Windows user/machine), this backup restores on any machine - handy when reinstalling Windows. Keep the passphrase safe: without it the backup cannot be restored.
+- **Everything is logged.** A central log at `%AppData%\Ceprkac\ceprkac.log` records navigation, autofill decisions, password load/save, wallet operations, popups, and crashes (with automatic rotation at 5 MB). This makes future problems far easier to diagnose.
+
+---
+
 ## 0.8.8 - 2026-09-10
 
 Installer: `Ceprkac-0.8.8-Setup.exe`

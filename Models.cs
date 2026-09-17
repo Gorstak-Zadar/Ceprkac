@@ -65,4 +65,40 @@ namespace Ceprkac
             ? $"{FullName} - {Line1}, {City}"
             : $"{Label}: {FullName} - {Line1}, {City}";
     }
+
+    /// <summary>
+    /// A combined autofill profile: one entry that holds BOTH a postal/contact address and
+    /// (optionally) a payment card, so the user manages a single "wallet" record per identity
+    /// (e.g. "Home") instead of separate address and card lists. DPAPI-encrypted at rest and
+    /// portable via the passphrase-encrypted export/import.
+    ///
+    /// Internally it reuses SavedAddress and SavedCard so the existing FillAddress / FillCard
+    /// JavaScript keeps working unchanged.
+    /// </summary>
+    internal sealed class WalletProfile
+    {
+        public string Label { get; set; } = "";           // e.g. "Home", "Work"
+        public SavedAddress Address { get; set; } = new SavedAddress();
+        public SavedCard Card { get; set; } = new SavedCard();
+
+        public bool HasCard => !string.IsNullOrWhiteSpace(Card.Number);
+        public bool HasAddress => !string.IsNullOrWhiteSpace(Address.FullName)
+                                  || !string.IsNullOrWhiteSpace(Address.Line1);
+
+        public string Display
+        {
+            get
+            {
+                var name = !string.IsNullOrWhiteSpace(Label) ? Label
+                          : (!string.IsNullOrWhiteSpace(Address.FullName) ? Address.FullName
+                          : (HasCard ? Card.CardholderName : "Profile"));
+                var parts = new List<string>();
+                if (HasAddress && !string.IsNullOrWhiteSpace(Address.Line1))
+                    parts.Add($"{Address.Line1}, {Address.City}".Trim().TrimEnd(','));
+                if (HasCard) parts.Add($"card ****{Card.Last4}");
+                var detail = parts.Count > 0 ? "  -  " + string.Join("  -  ", parts) : "";
+                return $"{name}{detail}";
+            }
+        }
+    }
 }

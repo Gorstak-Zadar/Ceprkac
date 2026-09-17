@@ -320,7 +320,7 @@ namespace Ceprkac
 
         private static bool IsPlaceholderDownloadName(string fileName)
         {
-            var stem = Path.GetFileNameWithoutExtension(fileName ?? "").Trim();
+            var stem = (Path.GetFileNameWithoutExtension(fileName ?? "") ?? "").Trim();
             if (stem.Length == 0) return true;
             return stem.Equals("aaaa", StringComparison.OrdinalIgnoreCase);
         }
@@ -328,7 +328,7 @@ namespace Ceprkac
         private static string GuessExtensionFromUri(string? uri)
         {
             if (string.IsNullOrWhiteSpace(uri)) return "";
-            var lower = uri.ToLowerInvariant();
+            var lower = uri!.ToLowerInvariant();
             if (lower.StartsWith("data:image/png", StringComparison.Ordinal)) return ".png";
             if (lower.StartsWith("data:image/jpeg", StringComparison.Ordinal) || lower.StartsWith("data:image/jpg", StringComparison.Ordinal)) return ".jpg";
             if (lower.StartsWith("data:image/gif", StringComparison.Ordinal)) return ".gif";

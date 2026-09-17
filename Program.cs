@@ -76,6 +76,7 @@ namespace Ceprkac
 
             static void LogException(Exception? ex, string source)
             {
+                try { if (ex != null) Logger.Error("CRASH", source, ex); } catch { }
                 try
                 {
                     var path = Path.Combine(Path.GetTempPath(), "Ceprkac-crash.log");
