@@ -28,6 +28,61 @@ namespace Ceprkac
             e.State = CoreWebView2PermissionState.Default;
         }
 
+        // Per-session remembered decisions for launching external apps via custom URI
+        // schemes (e.g. discord://, slack://, spotify://, tg://). Keyed by "scheme|host".
+        private readonly Dictionary<string, bool> _externalSchemeChoices =
+            new Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
+
+        // Raised when a page tries to open an external application through a custom
+        // protocol. Without handling this, WebView2 may silently launch the app (or
+        // suppress its own prompt), so we take over and always ask the user - restoring
+        // the "Open <app>?" choice that browsers normally show for links like discord://.
+        private void Core_LaunchingExternalUriScheme(object? sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e)
+        {
+            // We are showing our own modal dialog; take a deferral so WebView2 waits.
+            var deferral = e.GetDeferral();
+            try
+            {
+                string uri = e.Uri ?? "";
+                string scheme;
+                string host;
+                try
+                {
+                    var u = new System.Uri(uri);
+                    scheme = u.Scheme;
+                    host = string.IsNullOrEmpty(u.Host) ? scheme : u.Host;
+                }
+                catch
+                {
+                    int idx = uri.IndexOf(':');
+                    scheme = idx > 0 ? uri.Substring(0, idx) : uri;
+                    host = scheme;
+                }
+
+                string key = scheme + "|" + host;
+
+                // Honor a remembered choice for this scheme+host for the session.
+                if (_externalSchemeChoices.TryGetValue(key, out bool remembered))
+                {
+                    e.Cancel = !remembered;
+                    return;
+                }
+
+                var (allow, remember) = ExternalAppPrompt.Ask(this, scheme, e.InitiatingOrigin ?? "");
+                e.Cancel = !allow;
+                if (remember) _externalSchemeChoices[key] = allow;
+            }
+            catch
+            {
+                // On any failure, err on the side of NOT launching an external app silently.
+                e.Cancel = true;
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
+
 
         private void RefreshAddressSuggest()
         {

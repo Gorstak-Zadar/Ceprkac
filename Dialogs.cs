@@ -99,6 +99,75 @@ namespace Ceprkac
     }
 
     /// <summary>
+    /// Dark-themed confirmation asking whether to open an external application that a web
+    /// page requested via a custom URI scheme (e.g. discord://). Returns whether the user
+    /// allowed the launch and whether that choice should be remembered for the session.
+    /// </summary>
+    internal static class ExternalAppPrompt
+    {
+        public static (bool allow, bool remember) Ask(IWin32Window owner, string scheme, string origin)
+        {
+            string appName = string.IsNullOrWhiteSpace(scheme)
+                ? "an application"
+                : char.ToUpper(scheme[0]) + scheme.Substring(1);
+
+            using var form = new Form
+            {
+                Text = "Open external app",
+                BackColor = Theme.TitleBar,
+                ForeColor = Theme.ForeLight,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ClientSize = new Size(420, 168),
+                ShowInTaskbar = false,
+            };
+
+            string where = string.IsNullOrWhiteSpace(origin) ? "This site" : origin;
+            var message = new Label
+            {
+                Text = $"{where} wants to open \"{appName}\".\n\nAllow it to open this application on your device?",
+                ForeColor = Theme.ForeLight,
+                AutoSize = false,
+                Location = new Point(16, 14),
+                Size = new Size(388, 66),
+                TextAlign = ContentAlignment.TopLeft,
+            };
+
+            var remember = new CheckBox
+            {
+                Text = "Remember my choice for this site",
+                ForeColor = Theme.ForeLight,
+                AutoSize = true,
+                Location = new Point(16, 84),
+            };
+
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                FlowDirection = FlowDirection.RightToLeft,
+                Height = 46,
+                Padding = new Padding(8),
+                BackColor = Theme.TitleBar,
+            };
+            var open = new Button { Text = "Open", DialogResult = DialogResult.OK, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 96, Height = 28 };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, BackColor = Theme.InactiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 96, Height = 28 };
+            buttons.Controls.Add(open);
+            buttons.Controls.Add(cancel);
+
+            form.Controls.Add(message);
+            form.Controls.Add(remember);
+            form.Controls.Add(buttons);
+            form.AcceptButton = open;
+            form.CancelButton = cancel;
+
+            var result = form.ShowDialog(owner);
+            return (result == DialogResult.OK, remember.Checked);
+        }
+    }
+
+    /// <summary>
     /// Dark-themed list manager for a collection of items: shows items, and Add / Edit / Delete
     /// buttons. addNew returns a new item (or null if cancelled); editExisting mutates/returns the
     /// edited item (or null if cancelled). The backing list is mutated in place.

@@ -2,11 +2,11 @@
 
 A Chrome-inspired tabbed browser for **Windows x64**, built with C# WinForms and **WebView2**. Same UI and features as [GBrowser](https://github.com/CroatiaSecurity/GBrowser), with Edge codecs so **H.264 / AAC** actually play (Discord embeds, typical HTML5 players).
 
-[![version](https://img.shields.io/badge/version-0.8.9-blue?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.9.0-blue?style=flat-square)](CHANGELOG.md)
 [![.NET](https://img.shields.io/badge/.NET-Framework%204.8-512BD4?style=flat-square)](#requirements)
 [![engine](https://img.shields.io/badge/engine-WebView2%20(Chromium)-orange?style=flat-square)](#requirements)
 
-**Download:** [Ceprkac 0.8.9 Setup](https://github.com/CroatiaSecurity/Ceprkac/releases/latest) - **History:** [CHANGELOG](CHANGELOG.md)
+**Download:** [Ceprkac 0.9.0 Setup](https://github.com/CroatiaSecurity/Ceprkac/releases/latest) - **History:** [CHANGELOG](CHANGELOG.md)
 
 ---
 
@@ -21,6 +21,7 @@ A Chrome-inspired tabbed browser for **Windows x64**, built with C# WinForms and
 - Full activity/diagnostic log at `%AppData%\Ceprkac\ceprkac.log`
 - Network + DOM ad blocking (`blocklist.txt`); YouTube embed ads blocked via fetch interceptor in iframes
 - Native WebView2 Ctrl+F find bar, permission dialogs, passkeys, and accelerator keys
+- **Open external app?** confirmation before a site launches a desktop app via a custom URI scheme (e.g. `discord://`), with an optional per-site "remember" for the session
 - Hover link URL in the status bar; duplicate tab (`Ctrl+Shift+K`)
 - Injected-module cleaner (identity unload on LDR load, all module extensions, WebView2 children)
 - WebView2 Evergreen Runtime auto-installed if missing
@@ -46,7 +47,7 @@ dotnet run --project Ceprkac.csproj
 build.bat
 ```
 
-Output: `releases\0.8.9\Ceprkac-0.8.9-Setup.exe`
+Output: `releases\0.9.0\Ceprkac-0.9.0-Setup.exe`
 
 ## Default browser
 

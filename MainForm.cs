@@ -1407,6 +1407,7 @@ namespace Ceprkac
             core.DownloadStarting += Core_DownloadStarting;
             core.ContextMenuRequested += Core_ContextMenuRequested;
             core.PermissionRequested += Core_PermissionRequested;
+            core.LaunchingExternalUriScheme += Core_LaunchingExternalUriScheme;
             core.WebMessageReceived += (_, args) => OnWebMessage(tab, args);
             core.StatusBarTextChanged += (_, _) =>
             {

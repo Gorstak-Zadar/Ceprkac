@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 - 2026-09-19
+
+Installer: `Ceprkac-0.9.0-Setup.exe`
+
+### Open external app? - the choice is yours again
+
+- **Sites that try to open a desktop app now ask first.** When a page navigates to a custom URI scheme (e.g. Discord's `discord://`, or `slack://`, `spotify://`, `tg://`) to launch its native app, Ceprkac shows an **Open external app** confirmation before anything launches. Previously Ceprkac never handled WebView2's `LaunchingExternalUriScheme` event, so the runtime's default behavior applied and the app could launch without a reliable prompt - effectively allow-by-default. The prompt (dark-themed, matching the rest of the UI) now puts you back in control with an explicit **Open** / **Cancel** choice.
+- **Optional "remember my choice for this site."** Tick the checkbox to reuse your decision for that scheme+host for the rest of the session, so you are not asked repeatedly. Remembered choices are in-memory only and reset when Ceprkac closes.
+- **Fails closed.** If anything goes wrong resolving the request, Ceprkac declines the launch rather than opening an external app silently.
+
+---
+
 ## 0.8.9 - 2026-09-17
 
 Installer: `Ceprkac-0.8.9-Setup.exe`
