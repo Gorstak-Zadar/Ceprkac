@@ -25,6 +25,7 @@ namespace Ceprkac
     internal sealed class FieldEditorForm : Form
     {
         private readonly TableLayoutPanel _layout;
+        private readonly Panel _scroll;
         private int _row;
 
         public FieldEditorForm(string title)
@@ -32,22 +33,38 @@ namespace Ceprkac
             Text = title;
             BackColor = Theme.TitleBar;
             ForeColor = Theme.ForeLight;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            // Resizable so the user can enlarge it; a real minimum keeps buttons visible.
+            FormBorderStyle = FormBorderStyle.Sizable;
             StartPosition = FormStartPosition.CenterParent;
-            MaximizeBox = false;
+            MaximizeBox = true;
             MinimizeBox = false;
-            ClientSize = new Size(380, 100);
+            ShowInTaskbar = false;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            MinimumSize = new Size(440, 260);
+            ClientSize = new Size(460, 300);
+
+            // Scrollable host for the fields so a tall form (e.g. the full wallet profile)
+            // never pushes the Save/Cancel buttons off-screen - it scrolls instead.
+            _scroll = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Theme.TitleBar,
+                Padding = new Padding(0),
+            };
             _layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 2,
                 Padding = new Padding(12),
                 BackColor = Theme.TitleBar,
+                GrowStyle = TableLayoutPanelGrowStyle.AddRows,
             };
             _layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
             _layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            Controls.Add(_layout);
+            _scroll.Controls.Add(_layout);
         }
 
         public TextBox AddField(string label, string value, bool isPassword = false)
@@ -59,7 +76,8 @@ namespace Ceprkac
                 AutoSize = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Anchor = AnchorStyles.Left | AnchorStyles.Right,
-                Height = 26,
+                Height = 28,
+                Margin = new Padding(3, 4, 3, 4),
             };
             var box = new TextBox
             {
@@ -69,7 +87,10 @@ namespace Ceprkac
                 BorderStyle = BorderStyle.FixedSingle,
                 Anchor = AnchorStyles.Left | AnchorStyles.Right,
                 UseSystemPasswordChar = isPassword,
+                Margin = new Padding(3, 4, 3, 4),
+                Height = 26,
             };
+            _layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             _layout.Controls.Add(lbl, 0, _row);
             _layout.Controls.Add(box, 1, _row);
             _row++;
@@ -82,19 +103,30 @@ namespace Ceprkac
             {
                 Dock = DockStyle.Bottom,
                 FlowDirection = FlowDirection.RightToLeft,
-                Height = 44,
-                Padding = new Padding(8),
+                Height = 52,
+                Padding = new Padding(10),
                 BackColor = Theme.TitleBar,
             };
-            var save = new Button { Text = "Save", DialogResult = DialogResult.OK, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 90 };
-            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, BackColor = Theme.InactiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 90 };
+            var save = new Button { Text = "Save", DialogResult = DialogResult.OK, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 100, Height = 30 };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, BackColor = Theme.InactiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 100, Height = 30 };
             buttons.Controls.Add(save);
             buttons.Controls.Add(cancel);
+
+            // Add the buttons (bottom) FIRST, then the fill panel, so the fill area is laid out
+            // inside the remaining space above the buttons and can never cover them.
             Controls.Add(buttons);
+            Controls.Add(_scroll);
             AcceptButton = save;
             CancelButton = cancel;
-            // Size to content
-            ClientSize = new Size(Math.Max(380, _layout.PreferredSize.Width + 24), _layout.PreferredSize.Height + buttons.Height + 8);
+
+            // Size the form to the fields, but never taller/wider than the working area. If the
+            // content is taller than the clamp, _scroll shows a scrollbar instead of hiding buttons.
+            int desiredW = Math.Max(MinimumSize.Width, _layout.PreferredSize.Width + 34);
+            int desiredH = _layout.PreferredSize.Height + buttons.Height + 16;
+            var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int maxW = Math.Max(MinimumSize.Width, wa.Width - 80);
+            int maxH = Math.Max(MinimumSize.Height, wa.Height - 80);
+            ClientSize = new Size(Math.Min(desiredW, maxW), Math.Min(desiredH, maxH));
         }
     }
 
@@ -168,6 +200,69 @@ namespace Ceprkac
     }
 
     /// <summary>
+    /// Dark-themed Allow/Block prompt for a site permission that WebView2 does not surface with
+    /// its own UI (e.g. "Apps on device"). Returns whether the user allowed it and whether the
+    /// choice should be remembered for the session.
+    /// </summary>
+    internal static class PermissionPrompt
+    {
+        public static (bool allow, bool remember) Ask(IWin32Window owner, string what, string host)
+        {
+            using var form = new Form
+            {
+                Text = "Permission request",
+                BackColor = Theme.TitleBar,
+                ForeColor = Theme.ForeLight,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ClientSize = new Size(430, 176),
+                ShowInTaskbar = false,
+            };
+
+            string where = string.IsNullOrWhiteSpace(host) ? "This site" : host;
+            var message = new Label
+            {
+                Text = $"{where} wants to {what}.\n\nDo you want to allow this?",
+                ForeColor = Theme.ForeLight,
+                AutoSize = false,
+                Location = new Point(16, 14),
+                Size = new Size(398, 70),
+                TextAlign = ContentAlignment.TopLeft,
+            };
+            var remember = new CheckBox
+            {
+                Text = "Remember my choice for this site",
+                ForeColor = Theme.ForeLight,
+                AutoSize = true,
+                Location = new Point(16, 90),
+            };
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                FlowDirection = FlowDirection.RightToLeft,
+                Height = 48,
+                Padding = new Padding(8),
+                BackColor = Theme.TitleBar,
+            };
+            var allow = new Button { Text = "Allow", DialogResult = DialogResult.OK, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 100, Height = 30 };
+            var block = new Button { Text = "Block", DialogResult = DialogResult.Cancel, BackColor = Theme.InactiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 100, Height = 30 };
+            buttons.Controls.Add(allow);
+            buttons.Controls.Add(block);
+
+            form.Controls.Add(message);
+            form.Controls.Add(remember);
+            form.Controls.Add(buttons);
+            form.AcceptButton = allow;
+            form.CancelButton = block;
+
+            var result = form.ShowDialog(owner);
+            return (result == DialogResult.OK, remember.Checked);
+        }
+    }
+
+    /// <summary>
     /// Dark-themed list manager for a collection of items: shows items, and Add / Edit / Delete
     /// buttons. addNew returns a new item (or null if cancelled); editExisting mutates/returns the
     /// edited item (or null if cancelled). The backing list is mutated in place.
@@ -191,9 +286,15 @@ namespace Ceprkac
             BackColor = Theme.TitleBar;
             ForeColor = Theme.ForeLight;
             StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            ClientSize = new Size(460, 320);
-            MinimumSize = new Size(360, 240);
+            // A normal sizable window (not ToolWindow) so it opens at the real requested size;
+            // the tool-window style combined with the app's DPI handling was collapsing it.
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            MinimumSize = new Size(480, 360);
+            ClientSize = new Size(520, 400);
 
             _list = new ListBox
             {
@@ -202,6 +303,7 @@ namespace Ceprkac
                 ForeColor = Theme.ForeLight,
                 BorderStyle = BorderStyle.FixedSingle,
                 IntegralHeight = false,
+                ItemHeight = 22,
             };
             _list.DoubleClick += (_, _) => EditSelected();
 
@@ -209,11 +311,12 @@ namespace Ceprkac
             {
                 Dock = DockStyle.Bottom,
                 FlowDirection = FlowDirection.LeftToRight,
-                Height = 46,
-                Padding = new Padding(8),
+                Height = 56,
+                Padding = new Padding(10),
                 BackColor = Theme.TitleBar,
+                WrapContents = false,
             };
-            Button Mk(string t) => new Button { Text = t, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 90, Height = 28 };
+            Button Mk(string t) => new Button { Text = t, BackColor = Theme.ActiveTab, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Width = 100, Height = 32, Margin = new Padding(4) };
             var add = Mk("Add");
             var edit = Mk("Edit");
             var del = Mk("Delete");
@@ -234,8 +337,10 @@ namespace Ceprkac
             bar.Controls.Add(del);
             bar.Controls.Add(close);
 
-            Controls.Add(_list);
+            // Add the bottom bar FIRST, then the fill list, so the list occupies the space
+            // above the bar and can never overlap/hide the buttons.
             Controls.Add(bar);
+            Controls.Add(_list);
             Refresh();
         }
 

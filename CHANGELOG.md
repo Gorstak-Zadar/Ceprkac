@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.2 - 2026-09-19
+
+Installer: `Ceprkac-0.9.2-Setup.exe`
+
+### Password picker, Wallet dialogs, external-app interception, and permission logging
+
+- **The saved-password picker no longer vanishes when a login page reloads.** On sites that redirect during sign-in (e.g. Discord's `/login` -> `/login?redirect_to=...`), the navigation closed the picker and Ceprkac wrongly treated that as a user dismissal, suppressing the offer for 20 seconds. It now only suppresses on a genuine dismissal (Escape / item click / explicit close) after the menu was open long enough to react to (>=700 ms); a programmatic close from navigation or WebView refocus no longer hides the offer. Every close is logged (`AUTOFILL`) with the WinForms close reason.
+- **Wallet dialogs are sized correctly and their buttons are no longer cut off.** The list manager and the field editor were opening too small on high-DPI displays, clipping the Add/Edit/Delete/Close and Save/Cancel buttons - which is why entering a card silently failed to save. Both dialogs now use DPI-aware auto-scaling, a real minimum size, a scrollable field area (the editor scrolls instead of pushing buttons off-screen), fixed row heights so text is always visible, and larger buttons. Card + address entries now save reliably.
+- **Custom-scheme launches (`discord://`, `slack://`, `spotify://`, `tg://`, ...) are intercepted in the page's main world.** WebView2's `LaunchingExternalUriScheme` event does not fire for launches from an iframe or a synthetic anchor click in this SDK, and an isolated-world script cannot patch the page's `window.open` / `location` / `iframe.src`. Interception now runs in the main world via CDP (like the FedCM suppressor) and relays catches to the host, which shows the Open/Cancel prompt and launches through the OS shell only when allowed. Shared remembered choices and fail-closed behavior with the existing event handler. Fully logged under `EXTERNAL`.
+- **Site-permission requests are now logged and, where WebView2 does not surface a prompt, Ceprkac asks.** Every permission request logs under `PERM`. For permission kinds the runtime resolves silently in this SDK (`UnknownPermission` - which is how "Apps on device" surfaces here - and `WindowManagement`), Ceprkac shows its own dark-themed Allow/Block prompt with an optional per-site "remember." Other kinds still defer to the browser's native dialog.
+
+---
+
+## 0.9.1 - 2026-09-19
+
+Installer: `Ceprkac-0.9.1-Setup.exe`
+
+### Fix: password picker vanished on page reload + external-app prompt diagnostics
+
+- **The saved-password picker no longer disappears when a login page reloads.** On sites that redirect during sign-in (e.g. Discord's `/login` -> `/login?redirect_to=...`), the navigation closed the picker's menu, and Ceprkac wrongly treated that automatic close as "the user dismissed it" - suppressing the offer for 20 seconds so it never came back. The close is now inspected: only a genuine user dismissal (Escape, clicking an item, or an explicit close) that happened after the menu was open long enough to react to (>=700 ms) suppresses the offer. A programmatic close from a page navigation or WebView refocus (`AppFocusChange` / `AppClicked`) no longer hides the picker, so saved logins keep being offered.
+- **Every credential-picker close is now logged** (`AUTOFILL`: dismissed-by-user vs. closed-programmatically with the WinForms close reason), making future "the password box didn't show" reports diagnosable from `ceprkac.log`.
+- **The external-app launch handler is now fully logged.** The `discord://` (and `slack://`, `spotify://`, `tg://`, ...) confirmation path now writes `EXTERNAL` log lines when the `LaunchingExternalUriScheme` event fires, when a remembered choice is reused, and when you pick Open/Cancel. If Discord's "open the desktop app" prompt still does not appear, the log now shows definitively whether WebView2 raised the event at all - the first step to fixing it. (SDK 1.0.1938.49 and the installed WebView2 runtime 153.x both support the event; the handler is wired on every tab.)
+
+---
+
 ## 0.9.0 - 2026-09-19
 
 Installer: `Ceprkac-0.9.0-Setup.exe`

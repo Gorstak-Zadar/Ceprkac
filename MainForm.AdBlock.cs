@@ -308,8 +308,31 @@ namespace Ceprkac
             // "Continue with google.com" prompt (e.g. The Guardian). Passkeys are untouched.
             await InstallFedCmSuppressor(core);
 
+            // Intercept custom-scheme (discord:// etc.) launches in the MAIN world. WebView2's
+            // LaunchingExternalUriScheme event does not fire for iframe/anchor-initiated launches
+            // in this SDK, and an isolated-world script cannot patch the page's window.open /
+            // location / iframe.src. So this must run in the main world via CDP, exactly like the
+            // FedCM suppressor above. It reports catches through a CustomEvent that the isolated
+            // ExternalSchemeBridgeJs relays to the host.
+            await InstallExternalSchemeInterceptor(core);
+
             // Inject fetch/XHR blocker into main world via DevTools Protocol
             core.NavigationCompleted += (_, _) => InjectMainWorldBlocker(core);
+        }
+
+        // Install the external-scheme interceptor into the main world, once per CoreWebView2,
+        // via Page.addScriptToEvaluateOnNewDocument so it runs before page scripts on every
+        // document and in every frame.
+        private static async Task InstallExternalSchemeInterceptor(CoreWebView2 core)
+        {
+            try
+            {
+                try { await core.CallDevToolsProtocolMethodAsync("Page.enable", "{}"); } catch { }
+                string escapedJs = ExternalSchemeMainWorldJs.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                string cdpParams = "{\"source\":\"" + escapedJs + "\"}";
+                await core.CallDevToolsProtocolMethodAsync("Page.addScriptToEvaluateOnNewDocument", cdpParams);
+            }
+            catch { }
         }
 
         // Install the FedCM / One Tap suppressor into the main world, once per CoreWebView2,

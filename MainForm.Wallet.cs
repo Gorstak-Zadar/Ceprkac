@@ -153,7 +153,11 @@ namespace Ceprkac
 
         private async void TryAutoFillWallet(BrowserTab tab)
         {
-            if (savedProfiles.Count == 0) return;
+            if (savedProfiles.Count == 0)
+            {
+                Logger.Log("WALLET", "Autofill skipped: no saved wallet profiles (add a card via Menu -> Wallet).");
+                return;
+            }
             if ((DateTime.Now - tab.LastAutoFillFormsAttempt).TotalSeconds < 3) return;
             tab.LastAutoFillFormsAttempt = DateTime.Now;
 
@@ -176,25 +180,50 @@ namespace Ceprkac
                 core = tab.WebView.CoreWebView2;
 
                 string detectJs = @"(function(){
-                    function has(sel){ try { return !!document.querySelector(sel); } catch(e){ return false; } }
-                    var card = has('input[autocomplete=""cc-number""], input[name*=""card"" i][name*=""num"" i], input[id*=""card"" i][id*=""num"" i], input[autocomplete=""cc-csc""]');
-                    var addr = has('input[autocomplete=""street-address""], input[autocomplete=""address-line1""], input[name*=""address"" i], input[id*=""address"" i], input[autocomplete=""postal-code""], input[name*=""zip"" i], input[name*=""postal"" i]');
-                    return (card?'card':'') + '|' + (addr?'addr':'');
+                    var CARD_SEL = 'input[autocomplete=""cc-number""], input[name*=""card"" i][name*=""num"" i], input[id*=""card"" i][id*=""num"" i], input[autocomplete=""cc-csc""], input[name*=""cardnumber"" i], input[id*=""cardnumber"" i]';
+                    var ADDR_SEL = 'input[autocomplete=""street-address""], input[autocomplete=""address-line1""], input[name*=""address"" i], input[id*=""address"" i], input[autocomplete=""postal-code""], input[name*=""zip"" i], input[name*=""postal"" i]';
+                    function has(doc, sel){ try { return !!doc.querySelector(sel); } catch(e){ return false; } }
+                    var card = has(document, CARD_SEL);
+                    var addr = has(document, ADDR_SEL);
+                    // Same-origin iframes (some checkouts nest fields one frame deep).
+                    var frames = document.querySelectorAll('iframe');
+                    var crossOriginPayment = false;
+                    for (var i=0;i<frames.length;i++){
+                        var src = (frames[i].getAttribute('src')||'').toLowerCase();
+                        // Detect known card-field iframe providers we cannot read into.
+                        if (/js\.stripe\.com|checkout\.stripe|paypal\.com|braintree|adyen|checkout\.com|squarecdn|recurly|chargebee/.test(src)) crossOriginPayment = true;
+                        try {
+                            var idoc = frames[i].contentDocument;
+                            if (idoc){ if (has(idoc, CARD_SEL)) card = true; if (has(idoc, ADDR_SEL)) addr = true; }
+                        } catch(e){ /* cross-origin */ }
+                    }
+                    return (card?'card':'') + '|' + (addr?'addr':'') + '|' + (crossOriginPayment?'xpay':'');
                 })()";
 
                 string result;
                 try { result = (await core.ExecuteScriptAsync(detectJs)).Trim('"'); }
                 catch (Exception ex) { Logger.Error("WALLET", "detect fields", ex); continue; }
 
-                bool hasCardFields = result.StartsWith("card");
-                bool hasAddrFields = result.EndsWith("addr");
+                bool hasCardFields = result.Contains("card");
+                bool hasAddrFields = result.Contains("addr");
+                bool crossOriginPayment = result.Contains("xpay");
                 if (!hasCardFields && !hasAddrFields)
                 {
-                    if (!looksLikeCheckout) return;
-                    continue;
+                    if (crossOriginPayment)
+                    {
+                        // Card field lives in a cross-origin iframe (Stripe/PayPal/etc.) that no
+                        // browser extension or autofill can write into for security reasons.
+                        Logger.Log("WALLET", $"Card field is in a cross-origin payment iframe on {pageUrl} - cannot autofill (browser security). Address fields (if any) still fillable.");
+                        if (!hasAddrFields) return;
+                    }
+                    else
+                    {
+                        if (!looksLikeCheckout) return;
+                        continue;
+                    }
                 }
 
-                Logger.Log("WALLET", $"Checkout fields on {pageUrl}: card={hasCardFields}, addr={hasAddrFields}, profiles={savedProfiles.Count}.");
+                Logger.Log("WALLET", $"Checkout fields on {pageUrl}: card={hasCardFields}, addr={hasAddrFields}, xpayIframe={crossOriginPayment}, profiles={savedProfiles.Count}.");
 
                 // Only profiles that actually carry the needed data are candidates.
                 var candidates = savedProfiles.Where(p =>

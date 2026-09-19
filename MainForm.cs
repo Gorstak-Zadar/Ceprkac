@@ -1147,6 +1147,7 @@ namespace Ceprkac
                     _ = core.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
                     _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
                     _ = core.AddScriptToExecuteOnDocumentCreatedAsync(FedCmSuppressJs);
+                    _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ExternalSchemeBridgeJs);
 
                     // Block navigations to ad domains - cancel and auto-close empty tabs
                     core.NavigationStarting += (_, navArgs) =>
@@ -1279,6 +1280,7 @@ namespace Ceprkac
                     popupCore.Settings.IsPasswordAutosaveEnabled = true;
                     popupCore.ContextMenuRequested += Core_ContextMenuRequested;
                     _ = popupCore.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
+                    _ = popupCore.AddScriptToExecuteOnDocumentCreatedAsync(ExternalSchemeBridgeJs);
                     _ = popupCore.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
                     popupCore.WebMessageReceived += (_, args) => OnWebMessage(parentTab, args);
                 }
@@ -1397,6 +1399,7 @@ namespace Ceprkac
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(AutofillAssistJs);
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ContextCaptureJs);
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(FedCmSuppressJs);
+                _ = core.AddScriptToExecuteOnDocumentCreatedAsync(ExternalSchemeBridgeJs);
             }
             SwitchToTab(insertIndex);
             return webView;

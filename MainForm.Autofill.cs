@@ -973,6 +973,7 @@ namespace Ceprkac
                 }
 
                 bool chose = false;
+                var shownAt = DateTime.Now;
                 var picker = new ContextMenuStrip
                 {
                     BackColor = Theme.ActiveTab,
@@ -1046,11 +1047,29 @@ namespace Ceprkac
                 };
                 picker.Items.Add(dismiss);
 
-                picker.Closed += (_, _) =>
+                picker.Closed += (_, e) =>
                 {
-                    // Closed without picking - temporarily suppress so an accidental
-                    // click-away doesn't permanently hide the picker for this session.
-                    if (!chose) TemporarilySuppressCredentialOffer(pageUrl);
+                    // Only treat this as a real user click-away when (a) the user did not
+                    // pick, (b) the picker was open long enough for a human to react, and
+                    // (c) WinForms says the user actively dismissed it. A page navigation or
+                    // WebView refocus closes the menu with AppFocusChange/AppClicked almost
+                    // immediately - that is NOT a dismissal and must not suppress the offer,
+                    // otherwise reloading pages (e.g. Discord's /login -> /login?redirect_to)
+                    // permanently hide the picker. This is the "passwords lousy" bug.
+                    bool userDismissed =
+                        e.CloseReason == ToolStripDropDownCloseReason.CloseCalled
+                        || e.CloseReason == ToolStripDropDownCloseReason.Keyboard
+                        || e.CloseReason == ToolStripDropDownCloseReason.ItemClicked;
+                    bool openLongEnough = (DateTime.Now - shownAt).TotalMilliseconds >= 700;
+                    if (!chose && userDismissed && openLongEnough)
+                    {
+                        TemporarilySuppressCredentialOffer(pageUrl);
+                        Logger.Log("AUTOFILL", $"Credential picker dismissed by user (reason={e.CloseReason}).");
+                    }
+                    else if (!chose)
+                    {
+                        Logger.Log("AUTOFILL", $"Credential picker closed programmatically (reason={e.CloseReason}) - offer NOT suppressed.");
+                    }
                     if (ReferenceEquals(credentialPickerMenu, picker))
                         credentialPickerMenu = null;
                     // Never Dispose() synchronously inside Closed - WinForms'
@@ -1203,6 +1222,116 @@ namespace Ceprkac
   } catch(e) {}
 })();";
 
+        // Intercepts attempts to launch an external application via a custom URI scheme
+        // (discord://, slack://, spotify://, tg://, ...). WebView2's LaunchingExternalUriScheme
+        // event does NOT fire for launches initiated from a hidden iframe or a synthetic anchor
+        // click (which is exactly how Discord's web app opens the desktop client), so relying on
+        // that event alone let the app launch with no prompt.
+        //
+        // Interception MUST run in the page's MAIN world: window.open / window.location /
+        // iframe.src / setAttribute overrides only affect the page when they patch the page's own
+        // objects. An isolated-world script (AddScriptToExecuteOnDocumentCreated) gets its own
+        // window and cannot patch these - which is why the earlier attempt silently did nothing.
+        // So ExternalSchemeMainWorldJs is injected via CDP Page.addScriptToEvaluateOnNewDocument
+        // (same reliable path the FedCM suppressor and YouTube stripper use). The main world has
+        // no chrome.webview bridge, so it hands each caught launch to the isolated world by
+        // dispatching a CustomEvent; ExternalSchemeBridgeJs (isolated world) relays it to the host.
+        private const string ExternalSchemeMainWorldJs = @"
+(function(){
+  if (window.__ceprkacExtScheme) return;
+  window.__ceprkacExtScheme = true;
+  var WEB = {http:1,https:1,about:1,blob:1,data:1,javascript:1,mailto:1,'chrome-extension':1,ftp:1,ws:1,wss:1,file:1,'':1};
+  function schemeOf(url){
+    try { if(!url) return ''; var m=String(url).match(/^([a-zA-Z][a-zA-Z0-9+.\-]*):/); return m?m[1].toLowerCase():''; }
+    catch(e){ return ''; }
+  }
+  function isExternal(url){ var s=schemeOf(url); return s && !WEB[s]; }
+  function report(url){
+    try { window.dispatchEvent(new CustomEvent('__ceprkacExt', {detail:String(url)})); } catch(e){}
+  }
+  // 1) Clicks on (or inside) an external-scheme anchor.
+  document.addEventListener('click', function(ev){
+    try {
+      var el = ev.target;
+      while (el && el.tagName !== 'A') el = el.parentElement;
+      if (el && el.getAttribute && isExternal(el.getAttribute('href'))) { ev.preventDefault(); ev.stopPropagation(); report(el.href); }
+    } catch(e){}
+  }, true);
+  // 2) window.location assign / replace / href setter.
+  try {
+    var origAssign = window.location.assign.bind(window.location);
+    var origReplace = window.location.replace.bind(window.location);
+    window.location.assign = function(u){ if(isExternal(u)){ report(u); return; } return origAssign(u); };
+    window.location.replace = function(u){ if(isExternal(u)){ report(u); return; } return origReplace(u); };
+  } catch(e){}
+  // 3) window.open.
+  try {
+    var origOpen = window.open;
+    window.open = function(u){ if(isExternal(u)){ report(u); return null; } return origOpen.apply(window, arguments); };
+  } catch(e){}
+  // 4) Dynamically-inserted iframes/frames whose src is an external scheme.
+  try {
+    var mo = new MutationObserver(function(muts){
+      for (var i=0;i<muts.length;i++){
+        var added = muts[i].addedNodes;
+        for (var j=0;j<added.length;j++){
+          var node = added[j];
+          if (!node || node.nodeType !== 1) continue;
+          try {
+            if ((node.tagName==='IFRAME'||node.tagName==='FRAME') && isExternal(node.getAttribute('src'))) {
+              var u = node.getAttribute('src'); node.removeAttribute('src'); report(u);
+            }
+          } catch(e){}
+        }
+      }
+    });
+    mo.observe(document.documentElement || document, {childList:true, subtree:true});
+  } catch(e){}
+  // 5) iframe/frame .src setter.
+  try {
+    ['HTMLIFrameElement','HTMLFrameElement'].forEach(function(tn){
+      var proto = window[tn] && window[tn].prototype; if(!proto) return;
+      var d = Object.getOwnPropertyDescriptor(proto,'src'); if(!d || !d.set) return;
+      Object.defineProperty(proto,'src',{configurable:true,enumerable:d.enumerable,get:d.get,
+        set:function(v){ if(isExternal(v)){ report(v); return; } return d.set.call(this,v); }});
+    });
+  } catch(e){}
+  // 6) setAttribute('src'|'href', 'scheme://...').
+  try {
+    var origSetAttr = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value){
+      try { var n=(name||'').toLowerCase(); if((n==='src'||n==='href') && isExternal(value)){ report(value); return; } } catch(e){}
+      return origSetAttr.call(this, name, value);
+    };
+  } catch(e){}
+  // 7) registerProtocolHandler probe (informational only).
+  try {
+    if (navigator.registerProtocolHandler) {
+      navigator.registerProtocolHandler = function(){ try { report('rph:' + (arguments[0]||'')); } catch(e){} };
+    }
+  } catch(e){}
+  report('installed:' + (location.href||'').slice(0,120));
+})();";
+
+        // Isolated-world bridge: listens for the main-world CustomEvent and relays to the host,
+        // because chrome.webview.postMessage is only reachable from the isolated world.
+        private const string ExternalSchemeBridgeJs = @"
+(function(){
+  if (window.__ceprkacExtBridge) return;
+  window.__ceprkacExtBridge = true;
+  window.addEventListener('__ceprkacExt', function(ev){
+    try {
+      var u = ev && ev.detail ? String(ev.detail) : '';
+      if (!u) return;
+      if (u.indexOf('installed:') === 0) {
+        window.chrome.webview.postMessage(JSON.stringify({type:'external-installed', where:u.slice(10)}));
+      } else {
+        window.chrome.webview.postMessage(JSON.stringify({type:'external-launch', url:u}));
+      }
+    } catch(e){}
+  }, true);
+})();";
+
         private void OnWebMessage(BrowserTab tab, CoreWebView2WebMessageReceivedEventArgs args)
         {
             string raw;
@@ -1233,6 +1362,24 @@ namespace Ceprkac
                     if (string.IsNullOrEmpty(password)) return;
                     Logger.Log("PASSWORDS", $"Password-submit detected for {url} (user={username}).");
                     BeginInvoke(new Action(() => OfferSavePassword(url, username, password)));
+                }
+                else if (type == "external-launch")
+                {
+                    string url = root.TryGetProperty("url", out var eu) ? (eu.GetString() ?? "") : "";
+                    if (string.IsNullOrWhiteSpace(url)) return;
+                    if (url.StartsWith("rph:", StringComparison.Ordinal))
+                    {
+                        Logger.Log("EXTERNAL", $"Page called registerProtocolHandler({url.Substring(4)}) - not blocking.");
+                        return;
+                    }
+                    string origin = "";
+                    try { origin = new Uri(tab.WebView.CoreWebView2?.Source ?? tab.Url ?? "").GetLeftPart(UriPartial.Authority); } catch { }
+                    BeginInvoke(new Action(() => HandleExternalLaunch(url, origin)));
+                }
+                else if (type == "external-installed")
+                {
+                    string where = root.TryGetProperty("where", out var w) ? (w.GetString() ?? "") : "";
+                    Logger.Log("EXTERNAL", $"Interceptor installed in frame: {where}");
                 }
             }
             catch { }

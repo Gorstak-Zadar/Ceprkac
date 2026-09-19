@@ -20,12 +20,64 @@ namespace Ceprkac
 {
     public partial class MainForm
     {
+        // Per-session remembered permission decisions, keyed by "kind|host".
+        private readonly Dictionary<string, bool> _permissionChoices =
+            new Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
+
         private void Core_PermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs e)
         {
-            // Let WebView2 show its own native permission prompt for all permission types
-            // (camera, microphone, geolocation, etc.). Setting Default defers to the
-            // browser's built-in dialog, which is richer and already themed by the OS.
-            e.State = CoreWebView2PermissionState.Default;
+            string uri = "";
+            try { uri = e.Uri ?? ""; } catch { }
+            var kind = e.PermissionKind;
+            Logger.Log("PERM", $"Permission requested: kind={kind}, uri='{uri}'");
+
+            // The "Apps on device" permission (Chromium getInstalledRelatedApps / local app
+            // discovery) and WindowManagement are not reliably shown by WebView2's native UI in
+            // this runtime/SDK combination - they resolve silently, so the user was never asked.
+            // For these we show our own Allow/Block prompt so the choice is restored. Everything
+            // else defers to the browser's native, OS-themed dialog.
+            bool needsCustomPrompt =
+                kind == CoreWebView2PermissionKind.UnknownPermission
+                || kind == CoreWebView2PermissionKind.WindowManagement;
+
+            if (!needsCustomPrompt)
+            {
+                e.State = CoreWebView2PermissionState.Default;
+                return;
+            }
+
+            string host;
+            try { host = new System.Uri(uri).Host; } catch { host = uri; }
+            string key = kind + "|" + host;
+
+            if (_permissionChoices.TryGetValue(key, out bool remembered))
+            {
+                e.State = remembered ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
+                Logger.Log("PERM", $"Using remembered choice for {key}: {(remembered ? "ALLOW" : "DENY")}.");
+                return;
+            }
+
+            // Show our own modal prompt; take a deferral so WebView2 waits for the answer.
+            var deferral = e.GetDeferral();
+            try
+            {
+                string what = kind == CoreWebView2PermissionKind.WindowManagement
+                    ? "manage windows on your device"
+                    : "access apps on your device";
+                var (allow, remember) = PermissionPrompt.Ask(this, what, host);
+                e.State = allow ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
+                if (remember) _permissionChoices[key] = allow;
+                Logger.Log("PERM", $"Prompted for {key}: user chose {(allow ? "ALLOW" : "DENY")}{(remember ? " (remembered)" : "")}.");
+            }
+            catch (Exception ex)
+            {
+                e.State = CoreWebView2PermissionState.Deny;
+                Logger.Error("PERM", "PermissionRequested prompt", ex);
+            }
+            finally
+            {
+                deferral.Complete();
+            }
         }
 
         // Per-session remembered decisions for launching external apps via custom URI
@@ -39,11 +91,15 @@ namespace Ceprkac
         // the "Open <app>?" choice that browsers normally show for links like discord://.
         private void Core_LaunchingExternalUriScheme(object? sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e)
         {
+            string rawUri = "";
+            try { rawUri = e.Uri ?? ""; } catch { }
+            Logger.Log("EXTERNAL", $"LaunchingExternalUriScheme fired: uri='{rawUri}', origin='{SafeOrigin(e)}'");
+
             // We are showing our own modal dialog; take a deferral so WebView2 waits.
             var deferral = e.GetDeferral();
             try
             {
-                string uri = e.Uri ?? "";
+                string uri = rawUri;
                 string scheme;
                 string host;
                 try
@@ -65,21 +121,91 @@ namespace Ceprkac
                 if (_externalSchemeChoices.TryGetValue(key, out bool remembered))
                 {
                     e.Cancel = !remembered;
+                    Logger.Log("EXTERNAL", $"Using remembered choice for {key}: {(remembered ? "ALLOW" : "BLOCK")}.");
                     return;
                 }
 
                 var (allow, remember) = ExternalAppPrompt.Ask(this, scheme, e.InitiatingOrigin ?? "");
                 e.Cancel = !allow;
                 if (remember) _externalSchemeChoices[key] = allow;
+                Logger.Log("EXTERNAL", $"Prompted for {key}: user chose {(allow ? "OPEN" : "CANCEL")}{(remember ? " (remembered)" : "")}.");
             }
-            catch
+            catch (Exception ex)
             {
                 // On any failure, err on the side of NOT launching an external app silently.
                 e.Cancel = true;
+                Logger.Error("EXTERNAL", "LaunchingExternalUriScheme handler", ex);
             }
             finally
             {
                 deferral.Complete();
+            }
+        }
+
+        private static string SafeOrigin(CoreWebView2LaunchingExternalUriSchemeEventArgs e)
+        {
+            try { return e.InitiatingOrigin ?? ""; } catch { return ""; }
+        }
+
+        // Handles an external-scheme launch that our injected ExternalSchemeJs caught in the page
+        // (a discord:// iframe/anchor/window.open that WebView2's own event never surfaced). Shows
+        // the same Open/Cancel prompt, honors a remembered per-site choice, and launches via the
+        // OS shell only when allowed. Everything is logged so the log shows exactly what happened.
+        private void HandleExternalLaunch(string uri, string initiatingOrigin)
+        {
+            Logger.Log("EXTERNAL", $"Page requested external launch (script-intercepted): uri='{uri}', origin='{initiatingOrigin}'");
+            try
+            {
+                string scheme;
+                string host;
+                try
+                {
+                    var u = new System.Uri(uri);
+                    scheme = u.Scheme;
+                    host = string.IsNullOrEmpty(u.Host) ? scheme : u.Host;
+                }
+                catch
+                {
+                    int idx = uri.IndexOf(':');
+                    scheme = idx > 0 ? uri.Substring(0, idx) : uri;
+                    host = scheme;
+                }
+
+                string key = scheme + "|" + host;
+
+                bool allow;
+                if (_externalSchemeChoices.TryGetValue(key, out bool remembered))
+                {
+                    allow = remembered;
+                    Logger.Log("EXTERNAL", $"Using remembered choice for {key}: {(allow ? "ALLOW" : "BLOCK")}.");
+                }
+                else
+                {
+                    var (a, remember) = ExternalAppPrompt.Ask(this, scheme, initiatingOrigin);
+                    allow = a;
+                    if (remember) _externalSchemeChoices[key] = allow;
+                    Logger.Log("EXTERNAL", $"Prompted for {key}: user chose {(allow ? "OPEN" : "CANCEL")}{(remember ? " (remembered)" : "")}.");
+                }
+
+                if (!allow) return;
+
+                // Launch through the OS shell. UseShellExecute routes the custom scheme to its
+                // registered handler (e.g. Discord) exactly as a normal browser would.
+                try
+                {
+                    Process.Start(new ProcessStartInfo { FileName = uri, UseShellExecute = true });
+                    Logger.Log("EXTERNAL", $"Launched external app for {key}.");
+                    try { statusLabel.Text = $"Opened external app ({scheme})"; } catch { }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("EXTERNAL", $"Process.Start for {uri}", ex);
+                    try { statusLabel.Text = "Could not open the external app."; } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("EXTERNAL", "HandleExternalLaunch", ex);
             }
         }
 
